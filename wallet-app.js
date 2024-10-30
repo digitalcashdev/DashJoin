@@ -1,5 +1,5 @@
 (function () {
-	'use strict';
+	"use strict";
 
 	function $(sel, el) {
 		return (el || document).querySelector(sel);
@@ -9,25 +9,28 @@
 		return Array.from((el || document).querySelectorAll(sel));
 	}
 
+	//@ts-expect-error
 	let DashPhrase = window.DashPhrase;
+	//@ts-expect-error
 	let DashHd = window.DashHd;
+	//@ts-expect-error
 	let DashKeys = window.DashKeys;
+	//@ts-expect-error
 	let DashTx = window.DashTx;
+	//@ts-expect-error
 	let Secp256k1 = window.nobleSecp256k1;
 
+	//@ts-expect-error
 	let DashJoin = window.DashJoin;
+	//@ts-expect-error
 	let DashP2P = window.DashP2P;
 
 	let App = {};
+	//@ts-expect-error
 	window.App = App;
 
 	const SATS = 100000000;
 	const MIN_BALANCE = 100001 * 1000;
-
-	let network = 'testnet';
-	let rpcBasicAuth = `api:null`;
-	let rpcBaseUrl = `https://${rpcBasicAuth}@trpc.digitalcash.dev/`;
-	let rpcExplorer = 'https://trpc.digitalcash.dev/';
 
 	let addresses = [];
 	let changeAddrs = [];
@@ -45,13 +48,13 @@
 			if (!address) {
 				return null;
 				// let pkhBytes = DashKeys.utils.hexToBytes(txInput.pubKeyHash);
-				// address = await DashKeys.pkhToAddr(pkhBytes, { version: network });
+				// address = await DashKeys.pkhToAddr(pkhBytes, { version: App.network });
 			}
 
 			let yourKeyData = keysMap[address];
 
 			let privKeyBytes = await DashKeys.wifToPrivKey(yourKeyData.wif, {
-				version: network,
+				version: App.network,
 			});
 			return privKeyBytes;
 		},
@@ -80,12 +83,7 @@
 		},
 	};
 	let dashTx = DashTx.create(keyUtils);
-	console.log('DEBUG dashTx instance', dashTx);
-
-	async function rpc(method, ...params) {
-		let result = await DashTx.utils.rpc(rpcBaseUrl, method, ...params);
-		return result;
-	}
+	console.log("DEBUG dashTx instance", dashTx);
 
 	function dbGet(key, defVal) {
 		let dataJson = localStorage.getItem(key);
@@ -154,11 +152,72 @@
 		}
 	}
 
-	App.toggleAll = function (event) {
-		let checked = event.target.checked;
+	const MAINNET = "mainnet";
+	const COINTYPE_DASH = 5;
+	const COINTYPE_TESTNET = 1; // testnet (for all coins)
 
-		let $table = event.target.closest('table');
-		for (let $input of $$('[type=checkbox]', $table)) {
+	App.network = MAINNET;
+	App.coinType = COINTYPE_DASH;
+	App.hdVersions = DashHd.MAINNET;
+	App.dbPrefix = "";
+	App.customRpcUrl = "";
+	App.rpcExplorer = "https://rpc.digitalcash.dev/";
+
+	/**
+	 * @param {String} method
+	 * @param {...any} params
+	 */
+	App.rpc = async function (method, ...params) {
+		let rpcBaseUrl = App.customRpcUrl;
+		if (rpcBaseUrl.length === 0) {
+			if (App.network === MAINNET) {
+				rpcBaseUrl = `https://api:null@rpc.digitalcash.dev/`;
+			} else {
+				rpcBaseUrl = `https://api:null@trpc.digitalcash.dev/`;
+			}
+		}
+
+		let result = await DashTx.utils.rpc(rpcBaseUrl, method, ...params);
+		return result;
+	};
+
+	/**
+	 * @param {"mainnet"|"testnet"|String} _network
+	 */
+	App.$setNetwork = async function (_network) {
+		let $testnets = $$("[data-network=testnet]");
+		if (_network === MAINNET) {
+			App.network = MAINNET;
+			App.dbPrefix = "";
+			App.coinType = COINTYPE_DASH;
+			App.hdVersions = DashHd.MAINNET;
+			App.rpcExplorer = "https://rpc.digitalcash.dev/";
+			for (let $testnet of $testnets) {
+				$testnet.hidden = true;
+			}
+		} else {
+			App.network = "testnet";
+			App.dbPrefix = "testnet-";
+			App.coinType = COINTYPE_TESTNET;
+			App.hdVersions = DashHd.TESTNET;
+			App.rpcExplorer = "https://trpc.digitalcash.dev/";
+			for (let $testnet of $testnets) {
+				$testnet.removeAttribute("hidden");
+			}
+		}
+		await dbSet("network", App.network);
+
+		// await App.init();
+	};
+
+	/** @param {Event} event */
+	App.toggleAll = function (event) {
+		//@ts-expect-error
+		let checked = event?.target?.checked || false;
+
+		//@ts-expect-error
+		let $table = event.target.closest("table");
+		for (let $input of $$("[type=checkbox]", $table)) {
 			$input.checked = checked;
 		}
 		return true;
@@ -187,22 +246,22 @@
 		let dust = totalSats - totalSigSats;
 		dust += fee;
 
-		$('[data-id=send-amount]').value = toFixed(totalAmount, 4);
+		$("[data-id=send-amount]").value = toFixed(totalAmount, 4);
 		//$('[data-id=send-dust]').value = dust;
-		$('[data-id=send-dust]').textContent = dust;
+		$("[data-id=send-dust]").textContent = dust;
 	};
 
 	App.sendDash = async function (event) {
 		event.preventDefault();
 
-		let amountStr = $('[data-id=send-amount]').value || 0;
+		let amountStr = $("[data-id=send-amount]").value || 0;
 		let amount = parseFloat(amountStr);
 		let satoshis = Math.round(amount * SATS);
 		// if (satoshis === 0) {
 		//     satoshis = null;
 		// }
 
-		let address = $('[data-id=send-address]').value;
+		let address = $("[data-id=send-address]").value;
 		if (!address) {
 			let err = new Error(`missing payment 'address' to send funds to`);
 			window.alert(err.message);
@@ -216,11 +275,11 @@
 		/** @type {Array<DashTx.TxInput>?} */
 		let utxos = null;
 
-		let $coins = $$('[data-name=coin]:checked');
+		let $coins = $$("[data-name=coin]:checked");
 		if ($coins.length) {
 			inputs = [];
 			for (let $coin of $coins) {
-				let [address, txid, indexStr] = $coin.value.split(',');
+				let [address, txid, indexStr] = $coin.value.split(",");
 				let index = parseInt(indexStr, 10);
 				let coin = selectCoin(address, txid, index);
 				Object.assign(coin, { outputIndex: coin.index });
@@ -245,20 +304,20 @@
 			throw err;
 		}
 
-		console.log('DEBUG Payment Address:', address);
-		console.log('DEBUG Available coins:', utxos?.length || inputs?.length);
-		console.log('DEBUG Available balance:', balance);
-		console.log('DEBUG Amount:', amount);
+		console.log("DEBUG Payment Address:", address);
+		console.log("DEBUG Available coins:", utxos?.length || inputs?.length);
+		console.log("DEBUG Available balance:", balance);
+		console.log("DEBUG Amount:", amount);
 
 		let output = { satoshis, address };
 		let draft = await draftWalletTx(utxos, inputs, output);
 
 		amount = output.satoshis / SATS;
-		$('[data-id=send-dust]').textContent = draft.tx.feeTarget;
-		$('[data-id=send-amount]').textContent = toFixed(amount, 8);
+		$("[data-id=send-dust]").textContent = draft.tx.feeTarget;
+		$("[data-id=send-amount]").textContent = toFixed(amount, 8);
 
 		let signedTx = await dashTx.legacy.finalizePresorted(draft.tx);
-		console.log('DEBUG signed tx', signedTx);
+		console.log("DEBUG signed tx", signedTx);
 		{
 			let amountStr = toFixed(amount, 4);
 			let confirmed = window.confirm(`Really send ${amountStr} to ${address}?`);
@@ -266,31 +325,33 @@
 				return;
 			}
 		}
-		void (await rpc('sendrawtransaction', signedTx.transaction));
+		void (await App.rpc("sendrawtransaction", signedTx.transaction));
 		void (await commitWalletTx(signedTx));
 	};
 
-	App.exportWif = async function (event) {
+	/** @param {Event} event */
+	App.$exportWif = async function (event) {
 		event.preventDefault();
 
-		let address = $('[data-id=export-address]').value;
+		let address = $("[name=exportAddress]").value;
 		let privKey = await keyUtils.getPrivateKey({ address });
-		let wif = await DashKeys.privKeyToWif(privKey, { version: network });
+		let wif = await DashKeys.privKeyToWif(privKey, { version: App.network });
 
-		$('[data-id=export-wif]').textContent = wif;
+		$("[data-id=export-wif]").textContent = wif;
 	};
 
+	/** @param {Event} event */
 	App.sendMemo = async function (event) {
 		event.preventDefault();
 
 		let msg;
 
 		/** @type {String?} */
-		let memo = $('[name=memo]').value || '';
+		let memo = $("[name=memo]").value || "";
 		/** @type {String?} */
 		let message = null;
-		let memoEncoding = $('[name=memo-encoding]:checked').value || 'hex';
-		if (memoEncoding !== 'hex') {
+		let memoEncoding = $("[name=memo-encoding]:checked").value || "hex";
+		if (memoEncoding !== "hex") {
 			message = memo;
 			memo = null;
 		}
@@ -306,14 +367,21 @@
 				return;
 			}
 		}
-		let txid = await rpc('sendrawtransaction', signedTx.transaction);
-		$('[data-id=memo-txid]').textContent = txid;
-		let link = `${rpcExplorer}#?method=getrawtransaction&params=["${txid}",1]&submit`;
-		$('[data-id=memo-link]').textContent = link;
-		$('[data-id=memo-link]').href = link;
+		let txid = await App.rpc("sendrawtransaction", signedTx.transaction);
+		$("[data-id=memo-txid]").textContent = txid;
+		let link = `${App.rpcExplorer}#?method=getrawtransaction&params=["${txid}",1]&submit`;
+		$("[data-id=memo-link]").textContent = link;
+		$("[data-id=memo-link]").href = link;
 		void (await commitWalletTx(signedTx));
 	};
 
+	/**
+	 * @param {Object} opts
+	 * @param {Number} [opts.burn=0]
+	 * @param {String?} [opts.memo=null]
+	 * @param {String?} [opts.message=null]
+	 * @param {Number} [opts.collateral=0]
+	 */
 	App._signMemo = async function ({
 		burn = 0,
 		memo = null,
@@ -326,8 +394,8 @@
 		let memoOutput = { satoshis, memo, message };
 		let outputs = [memoOutput];
 		let changeOutput = {
-			address: '',
-			pubKeyHash: '',
+			address: "",
+			pubKeyHash: "",
 			satoshis: 0,
 			reserved: 0,
 		};
@@ -338,12 +406,12 @@
 			let realChange = txInfo.outputs[txInfo.changeIndex];
 			realChange.address = changeAddrs.shift();
 			let pkhBytes = await DashKeys.addrToPkh(realChange.address, {
-				version: network,
+				version: App.network,
 			});
 			realChange.pubKeyHash = DashKeys.utils.bytesToHex(pkhBytes);
 		}
 		memoOutput.satoshis -= collateral; // adjusting for fee
-		console.log('DEBUG', txInfo);
+		console.log("DEBUG", txInfo);
 
 		let now = Date.now();
 		for (let input of txInfo.inputs) {
@@ -357,25 +425,25 @@
 		txInfo.outputs.sort(DashTx.sortOutputs);
 
 		let signedTx = await dashTx.hashAndSignAll(txInfo);
-		console.log('memo signed', signedTx);
+		console.log("memo signed", signedTx);
 		return signedTx;
 	};
 
 	App._signCollateral = async function (collateral = DashJoin.MIN_COLLATERAL) {
 		let signedTx = await App._signMemo({
 			burn: 0,
-			memo: '',
+			memo: "",
 			message: null,
 			collateral: DashJoin.MIN_COLLATERAL,
 		});
-		console.log('collat signed', signedTx);
+		console.log("collat signed", signedTx);
 		let signedTxBytes = DashTx.utils.hexToBytes(signedTx.transaction);
 		return signedTxBytes;
 	};
 
 	async function draftWalletTx(utxos, inputs, output) {
 		let draftTx = dashTx.legacy.draftSingleOutput({ utxos, inputs, output });
-		console.log('DEBUG draftTx', draftTx);
+		console.log("DEBUG draftTx", draftTx);
 
 		let changeOutput = draftTx.outputs[1];
 		if (changeOutput) {
@@ -401,14 +469,14 @@
 				continue;
 			}
 			if (!output.address) {
-				if (typeof output.memo !== 'string') {
+				if (typeof output.memo !== "string") {
 					let err = new Error(`output is missing 'address' and 'pubKeyHash'`);
 					window.alert(err.message);
 					throw err;
 				}
 			} else {
 				let pkhBytes = await DashKeys.addrToPkh(output.address, {
-					version: network,
+					version: App.network,
 				});
 				Object.assign(output, {
 					pubKeyHash: DashKeys.utils.bytesToHex(pkhBytes),
@@ -486,10 +554,10 @@
 	}
 
 	function renderAddresses() {
-		$('[data-id=spent-count]').textContent = spentAddrs.length;
-		$('[data-id=spent]').textContent = spentAddrs.join('\n');
-		$('[data-id=receive-addresses]').textContent = receiveAddrs.join('\n');
-		$('[data-id=change-addresses]').textContent = changeAddrs.join('\n');
+		$("[data-id=spent-count]").textContent = spentAddrs.length;
+		$("[data-id=spent]").textContent = spentAddrs.join("\n");
+		$("[data-id=receive-addresses]").textContent = receiveAddrs.join("\n");
+		$("[data-id=change-addresses]").textContent = changeAddrs.join("\n");
 	}
 
 	function selectCoin(address, txid, index) {
@@ -511,29 +579,26 @@
 	}
 
 	async function init() {
-		let phrases = dbGet('wallet-phrases', []);
+		let phrases = dbGet(`${App.dbPrefix}wallet-phrases`, []);
 		let primaryPhrase = phrases[0];
 		if (!primaryPhrase) {
 			primaryPhrase = await DashPhrase.generate(128);
-			dbSet('wallet-phrases', [primaryPhrase]);
+			dbSet(`${App.dbPrefix}wallet-phrases`, [primaryPhrase]);
 		}
 
-		let primarySalt = '';
+		let primarySalt = "";
 		let primarySeedBytes = await DashPhrase.toSeed(primaryPhrase, primarySalt);
 		let primarySeedHex = DashKeys.utils.bytesToHex(primarySeedBytes);
-		$('[data-id=wallet-phrase]').value = primaryPhrase;
-		$('[data-id=wallet-seed]').innerText = primarySeedHex;
+		$('[name="walletPhrase"]').value = primaryPhrase;
+		$('[name="walletPhrase"]').type = "password"; // delayed to avoid password prompt
+		$('[name="walletSeed"]').value = primarySeedHex;
+		$('[name="walletSeed"]').type = "password"; // delayed to avoid password prompt
 
 		let accountIndex = 0;
-		let coinType = 5; // DASH
-		let versions = DashHd.MAINNET;
-		if (network === `testnet`) {
-			coinType = 1; // testnet (for all coins)
-			versions = DashHd.TESTNET;
-		}
-		$('[data-id=wallet-account]').value = `m/44'/${coinType}'/${accountIndex}'`;
+		$("[data-id=wallet-account]").value =
+			`m/44'/${App.coinType}'/${accountIndex}'`;
 
-		let walletId;
+		let walletId = "";
 		let xprvReceiveKey;
 		let xprvChangeKey;
 		{
@@ -542,8 +607,8 @@
 
 			let accountKey = await walletKey.deriveAccount(0, {
 				purpose: 44, // BIP-44 (default)
-				coinType: coinType,
-				versions: versions,
+				coinType: App.coinType,
+				versions: App.hdVersions,
 			});
 			xprvReceiveKey = await accountKey.deriveXKey(DashHd.RECEIVE);
 			xprvChangeKey = await accountKey.deriveXKey(DashHd.CHANGE);
@@ -572,11 +637,11 @@
 		}
 
 		async function addKey(key, usage, i) {
-			let wif = await DashHd.toWif(key.privateKey, { version: 'testnet' });
+			let wif = await DashHd.toWif(key.privateKey, { version: App.network });
 			let address = await DashHd.toAddr(key.publicKey, {
-				version: 'testnet',
+				version: App.network,
 			});
-			let hdpath = `m/44'/${coinType}'/${accountIndex}'/${usage}`; // accountIndex from step 2
+			let hdpath = `m/44'/${App.coinType}'/${accountIndex}'/${usage}`; // accountIndex from step 2
 
 			// TODO put this somewhere safe
 			// let descriptor = `pkh([${walletId}/${partialPath}/0/${index}])`;
@@ -610,7 +675,7 @@
 		await updateDeltas(addresses);
 		renderAddresses();
 
-		$('body').removeAttribute('hidden');
+		$("body").removeAttribute("hidden");
 		renderCoins();
 	}
 
@@ -660,10 +725,10 @@
 		// },
 	];
 	function getCashDrawer() {
-		let slots = dbGet('cash-drawer-control', []);
+		let slots = dbGet("cash-drawer-control", []);
 		if (!slots.length) {
 			slots = defaultCjSlots.slice(0);
-			dbSet('cash-drawer-control', slots);
+			dbSet("cash-drawer-control", slots);
 		}
 		return slots;
 	}
@@ -674,7 +739,7 @@
 		for (let slot of slots) {
 			let $row = $(`[data-denom="${slot.denom}"]`);
 
-			let priorityStr = $('[name=priority]', $row).value;
+			let priorityStr = $("[name=priority]", $row).value;
 			if (priorityStr) {
 				let priority = parseFloat(priorityStr);
 				if (slot.priority !== priority) {
@@ -683,7 +748,7 @@
 				}
 			}
 
-			let wantStr = $('[name=want]', $row).value;
+			let wantStr = $("[name=want]", $row).value;
 			if (wantStr) {
 				let want = parseFloat(wantStr);
 				if (slot.want !== want) {
@@ -705,7 +770,7 @@
 		}
 
 		if (isDirty) {
-			dbSet('cash-drawer-control', slots);
+			dbSet("cash-drawer-control", slots);
 		}
 
 		renderCashDrawer();
@@ -722,21 +787,21 @@
 			slot.need = slot.want - have;
 			slot.need = Math.max(0, slot.need);
 
-			let priority = $('[name=priority]', $row).value;
+			let priority = $("[name=priority]", $row).value;
 			if (priority) {
 				if (priority !== slot.priority.toString()) {
-					$('[name=priority]', $row).value = slot.priority;
+					$("[name=priority]", $row).value = slot.priority;
 				}
 			}
-			let want = $('[name=want]', $row).value;
+			let want = $("[name=want]", $row).value;
 			if (want) {
 				if (want !== slot.want.toString()) {
-					$('[name=want]', $row).value = slot.want;
+					$("[name=want]", $row).value = slot.want;
 				}
 			}
 
-			$('[data-name=have]', $row).textContent = have;
-			$('[data-name=need]', $row).textContent = slot.need;
+			$("[data-name=have]", $row).textContent = have;
+			$("[data-name=need]", $row).textContent = slot.need;
 
 			for (let addr of addrs) {
 				cjBalance += denomsMap[slot.denom][addr].satoshis;
@@ -744,7 +809,7 @@
 		}
 
 		let cjAmount = cjBalance / SATS;
-		$('[data-id=cj-balance]').textContent = toFixed(cjAmount, 8);
+		$("[data-id=cj-balance]").textContent = toFixed(cjAmount, 8);
 	}
 
 	App.denominateCoins = async function (event) {
@@ -763,7 +828,7 @@
 			}
 		}
 
-		let slots = dbGet('cash-drawer-control');
+		let slots = dbGet("cash-drawer-control");
 
 		let priorityGroups = groupSlotsByPriorityAndAmount(slots);
 
@@ -799,7 +864,7 @@
 				slot.need -= 1;
 
 				// TODO DashTx.
-				console.log('Found coins to make denom', slot.denom, coins);
+				console.log("Found coins to make denom", slot.denom, coins);
 				let roundRobiner = createRoundRobin(slots, slot);
 				// roundRobiner();
 
@@ -829,7 +894,7 @@
 
 		let signedTx = await dashTx.legacy.finalizePresorted(draft.tx);
 		{
-			console.log('DEBUG confirming signed tx', signedTx);
+			console.log("DEBUG confirming signed tx", signedTx);
 			let amount = output.satoshis / SATS;
 			let amountStr = toFixed(amount, 4);
 			let confirmed = window.confirm(
@@ -839,7 +904,7 @@
 				return;
 			}
 		}
-		void (await rpc('sendrawtransaction', signedTx.transaction));
+		void (await App.rpc("sendrawtransaction", signedTx.transaction));
 		void (await commitWalletTx(signedTx));
 	}
 
@@ -914,13 +979,13 @@
 			// See
 			// - <https://trpc.digitalcash.dev/#?method=getaddressdeltas&params=[{"addresses":["ybLxVb3aspSHFgxM1qTyuBSXnjAqLFEG8P"]}]&submit>
 			// - <https://trpc.digitalcash.dev/#?method=getaddressmempool&params=[{"addresses":["ybLxVb3aspSHFgxM1qTyuBSXnjAqLFEG8P"]}]&submit>
-			await rpc('getaddressdeltas', { addresses: addrs }),
+			await App.rpc("getaddressdeltas", { addresses: addrs }),
 			// TODO check for proof of instantsend / acceptance
-			await rpc('getaddressmempool', { addresses: addrs }),
+			await App.rpc("getaddressmempool", { addresses: addrs }),
 		]);
 		for (let deltaList of deltaLists) {
 			for (let delta of deltaList) {
-				console.log('DEBUG delta', delta);
+				console.log("DEBUG delta", delta);
 				removeElement(addrs, delta.address);
 				removeElement(addresses, delta.address);
 				removeElement(receiveAddrs, delta.address);
@@ -945,27 +1010,27 @@
 		utxos.sort(sortCoinsByDenomAndSatsDesc);
 
 		let elementStrs = [];
-		let template = $('[data-id=coin-row-tmpl]').content;
+		let template = $("[data-id=coin-row-tmpl]").content;
 		for (let utxo of utxos) {
 			let amount = utxo.satoshis / SATS;
 			Object.assign(utxo, { amount: amount });
 
 			let clone = document.importNode(template, true);
-			$('[data-name=coin]', clone).value = [
+			$("[data-name=coin]", clone).value = [
 				utxo.address,
 				utxo.txid,
 				utxo.outputIndex,
-			].join(',');
-			$('[data-name=address]', clone).textContent = utxo.address;
-			$('[data-name=amount]', clone).textContent = toFixed(utxo.amount, 4);
+			].join(",");
+			$("[data-name=address]", clone).textContent = utxo.address;
+			$("[data-name=amount]", clone).textContent = toFixed(utxo.amount, 4);
 			if (utxo.denom) {
-				$('[data-name=amount]', clone).style.fontStyle = 'italic';
-				$('[data-name=amount]', clone).style.fontWeight = 'bold';
+				$("[data-name=amount]", clone).style.fontStyle = "italic";
+				$("[data-name=amount]", clone).style.fontWeight = "bold";
 			} else {
 				//
 			}
-			$('[data-name=txid]', clone).textContent = utxo.txid;
-			$('[data-name=output-index]', clone).textContent = utxo.index;
+			$("[data-name=txid]", clone).textContent = utxo.txid;
+			$("[data-name=output-index]", clone).textContent = utxo.index;
 
 			elementStrs.push(clone.firstElementChild.outerHTML);
 			//tableBody.appendChild(clone);
@@ -973,17 +1038,17 @@
 
 		let totalBalance = DashTx.sum(utxos);
 		let totalAmount = totalBalance / SATS;
-		$('[data-id=total-balance]').innerText = toFixed(totalAmount, 4);
+		$("[data-id=total-balance]").innerText = toFixed(totalAmount, 4);
 
-		let tableBody = $('[data-id=coins-table]');
-		tableBody.textContent = '';
-		tableBody.insertAdjacentHTML('beforeend', elementStrs.join('\n'));
+		let tableBody = $("[data-id=coins-table]");
+		tableBody.textContent = "";
+		tableBody.insertAdjacentHTML("beforeend", elementStrs.join("\n"));
 		//$('[data-id=balances]').innerText = balances.join('\n');
 
 		if (totalBalance < MIN_BALANCE) {
 			setTimeout(function () {
 				window.alert(
-					'Error: Balance too low. Please fill up at CN 💸 and/or DCG 💸.',
+					"Error: Balance too low. Please fill up at CN 💸 and/or DCG 💸.",
 				);
 			}, 300);
 		}
@@ -1019,7 +1084,7 @@
 					continue;
 				}
 
-				console.log('DEBUG denom', denom, coin);
+				console.log("DEBUG denom", denom, coin);
 				denomsMap[denom][coin.address] = coin;
 			}
 		}
@@ -1044,9 +1109,9 @@
 
 		let p2p = DashP2P.create();
 
-		let p2pWebProxyUrl = 'wss://tp2p.digitalcash.dev/ws';
+		let p2pWebProxyUrl = "wss://tp2p.digitalcash.dev/ws";
 		let query = {
-			access_token: 'secret',
+			access_token: "secret",
 			hostname: evonode.hostname,
 			port: evonode.port,
 		};
@@ -1055,18 +1120,18 @@
 		let wsc = new WebSocket(`${p2pWebProxyUrl}?${search}`);
 
 		await p2p.initWebSocket(wsc, {
-			network: network,
+			network: App.network,
 			hostname: evonode.hostname,
 			port: evonode.port,
 			start_height: height,
 		});
 
-		let senddsqBytes = DashJoin.packers.senddsq({ network: network });
-		console.log('[REQ: %csenddsq%c]', 'color: $55daba', 'color: inherit');
+		let senddsqBytes = DashJoin.packers.senddsq({ network: App.network });
+		console.log("[REQ: %csenddsq%c]", "color: $55daba", "color: inherit");
 		p2p.send(senddsqBytes);
 
-		void p2p.createSubscriber(['dsq'], async function (evstream) {
-			let msg = await evstream.once('dsq');
+		void p2p.createSubscriber(["dsq"], async function (evstream) {
+			let msg = await evstream.once("dsq");
 			let dsq = DashJoin.parsers.dsq(msg.payload);
 			let dsqStatus = {
 				// node info
@@ -1082,8 +1147,8 @@
 
 			App.coinjoinQueues[dsq.denomination][evonode.host] = dsqStatus;
 			console.log(
-				'%c[[DSQ]]',
-				'color: #bada55',
+				"%c[[DSQ]]",
+				"color: #bada55",
 				dsqStatus.denomination,
 				dsqStatus.ready,
 				dsqStatus.host,
@@ -1091,14 +1156,14 @@
 		});
 
 		function cleanup(err) {
-			console.error('WebSocket Error:', err);
+			console.error("WebSocket Error:", err);
 			delete App.peers[evonode.host];
 			for (let denom of DashJoin.DENOMS) {
 				delete App.coinjoinQueues[denom][evonode.host];
 			}
 			p2p.close();
 		}
-		wsc.addEventListener('error', cleanup);
+		wsc.addEventListener("error", cleanup);
 
 		App.peers[evonode.host] = p2p;
 		return App.peers[evonode.host];
@@ -1144,23 +1209,23 @@
 
 		// todo: pick a smaller size that matches the dss
 		let message = new Uint8Array(DashP2P.PAYLOAD_SIZE_MAX);
-		let evstream = p2p.createSubscriber(['dssu', 'dsq', 'dsf', 'dsc']);
+		let evstream = p2p.createSubscriber(["dssu", "dsq", "dsf", "dsc"]);
 
 		{
 			let collateralTx = collateralTxes.shift();
 			let dsa = {
-				network,
-				message,
-				denomination,
-				collateralTx,
+				network: App.network,
+				message: message,
+				denomination: denomination,
+				collateralTx: collateralTx,
 			};
 			let dsaBytes = DashJoin.packers.dsa(dsa);
-			console.log('DEBUG dsa, dsaBytes', dsa, dsaBytes);
+			console.log("DEBUG dsa, dsaBytes", dsa, dsaBytes);
 			p2p.send(dsaBytes);
 			for (;;) {
 				let msg = await evstream.once();
 
-				if (msg.command === 'dsq') {
+				if (msg.command === "dsq") {
 					let dsq = DashJoin.parsers.dsq(msg.payload);
 					if (dsq.denomination !== denomination) {
 						continue;
@@ -1171,9 +1236,9 @@
 					break;
 				}
 
-				if (msg.command === 'dssu') {
+				if (msg.command === "dssu") {
 					let dssu = DashJoin.parsers.dssu(msg.payload);
-					if (dssu.state === 'ERROR') {
+					if (dssu.state === "ERROR") {
 						evstream.close();
 						throw new Error();
 					}
@@ -1185,17 +1250,17 @@
 		{
 			let collateralTx = collateralTxes.shift();
 			let dsiBytes = DashJoin.packers.dsi({
-				network,
-				message,
-				inputs,
-				collateralTx,
-				outputs,
+				network: App.network,
+				message: message,
+				inputs: inputs,
+				collateralTx: collateralTx,
+				outputs: outputs,
 			});
 			p2p.send(dsiBytes);
-			let msg = await evstream.once('dsf');
-			console.log('DEBUG dsf %c[[MSG]]', 'color: blue', msg);
+			let msg = await evstream.once("dsf");
+			console.log("DEBUG dsf %c[[MSG]]", "color: blue", msg);
 			let dsfTxRequest = DashJoin.parsers.dsf(msg.payload);
-			console.log('DEBUG dsf', dsfTxRequest, inputs);
+			console.log("DEBUG dsf", dsfTxRequest, inputs);
 
 			makeSelectedInputsSignable(dsfTxRequest, inputs);
 			let txSigned = await dashTx.hashAndSignAll(dsfTxRequest);
@@ -1210,12 +1275,12 @@
 			assertSelectedOutputs(dsfTxRequest, outputs, inputs.length);
 
 			let dssBytes = DashJoin.packers.dss({
-				network: network,
+				network: App.network,
 				message: message,
 				inputs: signedInputs,
 			});
 			p2p.send(dssBytes);
-			void (await evstream.once('dsc'));
+			void (await evstream.once("dsc"));
 		}
 
 		return dsfTxRequest;
@@ -1288,21 +1353,18 @@
 	App.peers = {};
 
 	async function main() {
-		if (network === `testnet`) {
-			let $testnets = $$('[data-network=testnet]');
-			for (let $testnet of $testnets) {
-				$testnet.removeAttribute('hidden');
-			}
-		}
-
 		await init();
+
+		App.network = await dbGet("network", MAINNET);
+		$(`[name="dashNetwork"][value="${App.network}"]`).checked = true;
+		$(`[name="dashNetwork"]:checked`).onchange();
 
 		siftDenoms();
 		renderCashDrawer();
 		App.syncCashDrawer();
 
-		App._rawmnlist = await rpc('masternodelist');
-		App._chaininfo = await rpc('getblockchaininfo');
+		App._rawmnlist = await App.rpc("masternodelist");
+		App._chaininfo = await App.rpc("getblockchaininfo");
 		console.log(App._rawmnlist);
 		App._evonodes = DashJoin.utils._evonodeMapToList(App._rawmnlist);
 		// 35.166.18.166:19999
@@ -1315,7 +1377,7 @@
 		// 	hostname: '35.166.18.166',
 		// 	port: '19999',
 		// };
-		console.info('[info] chosen evonode:', index);
+		console.info("[info] chosen evonode:", index);
 		console.log(JSON.stringify(App._evonode, null, 2));
 
 		App.coinjoinQueues = {
@@ -1330,10 +1392,10 @@
 	}
 
 	App.createCoinJoinSession = async function () {
-		let $coins = $$('[data-name=coin]:checked');
+		let $coins = $$("[data-name=coin]:checked");
 		if (!$coins.length) {
 			let msg =
-				'Use the Coins table to select which coins to include in the CoinJoin session.';
+				"Use the Coins table to select which coins to include in the CoinJoin session.";
 			window.alert(msg);
 			return;
 		}
@@ -1342,12 +1404,12 @@
 		let outputs = [];
 		let denom;
 		for (let $coin of $coins) {
-			let [address, txid, indexStr] = $coin.value.split(',');
+			let [address, txid, indexStr] = $coin.value.split(",");
 			let index = parseInt(indexStr, 10);
 			let coin = selectCoin(address, txid, index);
 			coin.denom = DashJoin.getDenom(coin.satoshis);
 			if (!coin.denom) {
-				let msg = 'CoinJoin requires 10s-Denominated coins, shown in BOLD.';
+				let msg = "CoinJoin requires 10s-Denominated coins, shown in BOLD.";
 				window.alert(msg);
 				return;
 			}
@@ -1356,7 +1418,7 @@
 			}
 			if (coin.denom !== denom) {
 				let msg =
-					'CoinJoin requires all coins to be of the same denomination (ex: three 0.01, or two 1.0, but not a mix of the two).';
+					"CoinJoin requires all coins to be of the same denomination (ex: three 0.01, or two 1.0, but not a mix of the two).";
 				window.alert(msg);
 				return;
 			}
@@ -1366,7 +1428,7 @@
 			let output = {
 				address: receiveAddrs.shift(),
 				satoshis: denom,
-				pubKeyHash: '',
+				pubKeyHash: "",
 			};
 			let pkhBytes = await DashKeys.addrToPkh(output.address, {
 				version: network,
