@@ -1,6 +1,9 @@
 (function () {
 	"use strict";
 
+	//@ts-expect-error
+	let QRCode = window.QRCode;
+
 	function $(sel, el) {
 		return (el || document).querySelector(sel);
 	}
@@ -32,14 +35,63 @@
 	const SATS = 100000000;
 	const MIN_BALANCE = 100001 * 1000;
 
+	/**
+	 * @typedef AddressActivity
+	 * @prop {Number} balance
+	 * @prop {Array<CoinInfo>} deltas
+	 */
+
+	/**
+	 * @typedef CoinInfo
+	 * @prop {String} address
+	 * @prop {Number} index
+	 * @prop {Number} satoshis
+	 * @prop {Number} reserved - Date.now()
+	 * @prop {Number} denom
+	 */
+
+	const MAINNET = "mainnet";
+	const COINTYPE_DASH = 5;
+	const COINTYPE_TESTNET = 1; // testnet (for all coins)
+
+	App.network = MAINNET;
+	App.coinType = COINTYPE_DASH;
+	App.hdVersions = DashHd.MAINNET;
+	App.dbPrefix = "";
+	App.customRpcUrl = "";
+	App.rpcExplorer = "";
+	App.rpcBaseUrl = "";
+	App.p2pWebProxyUrl = "";
+
+	/** @type {Array<String>} */
 	let addresses = [];
+	/** @type {Array<String>} */
 	let changeAddrs = [];
+	/** @type {Array<String>} */
 	let receiveAddrs = [];
+	/** @type {Array<String>} */
 	let spentAddrs = [];
+	/** @type {Array<String>} */
 	let spendableAddrs = [];
+	/** @type {Object.<String, AddressActivity>} */
 	let deltasMap = {};
 	let keysMap = {};
+	/** @type {Object.<Number, Object.<String, CoinInfo>>} */
 	let denomsMap = {};
+
+	let emptyCoinjoinQueues = {
+		100001: {}, //      0.00100001
+		1000010: {}, //     0.01000010
+		10000100: {}, //    0.10000100
+		100001000: {}, //   1.00001000
+		1000010000: {}, // 10.00010000
+	};
+	App.coinjoinQueues = globalThis.structuredClone(emptyCoinjoinQueues);
+	App._rawmnlist = [];
+	App._chaininfo = {}; // TODO
+	App._evonodes = [];
+	App._evonode = {}; // TODO
+	App.peers = {}; // TODO
 
 	let keyUtils = {
 		getPrivateKey: async function (txInput, i) {
@@ -152,17 +204,6 @@
 		}
 	}
 
-	const MAINNET = "mainnet";
-	const COINTYPE_DASH = 5;
-	const COINTYPE_TESTNET = 1; // testnet (for all coins)
-
-	App.network = MAINNET;
-	App.coinType = COINTYPE_DASH;
-	App.hdVersions = DashHd.MAINNET;
-	App.dbPrefix = "";
-	App.customRpcUrl = "";
-	App.rpcExplorer = "https://rpc.digitalcash.dev/";
-
 	/**
 	 * @param {String} method
 	 * @param {...any} params
@@ -170,11 +211,7 @@
 	App.rpc = async function (method, ...params) {
 		let rpcBaseUrl = App.customRpcUrl;
 		if (rpcBaseUrl.length === 0) {
-			if (App.network === MAINNET) {
-				rpcBaseUrl = `https://api:null@rpc.digitalcash.dev/`;
-			} else {
-				rpcBaseUrl = `https://api:null@trpc.digitalcash.dev/`;
-			}
+			rpcBaseUrl = App.rpcBaseUrl;
 		}
 
 		let result = await DashTx.utils.rpc(rpcBaseUrl, method, ...params);
@@ -184,30 +221,59 @@
 	/**
 	 * @param {"mainnet"|"testnet"|String} _network
 	 */
-	App.$setNetwork = async function (_network) {
-		let $testnets = $$("[data-network=testnet]");
-		if (_network === MAINNET) {
-			App.network = MAINNET;
-			App.dbPrefix = "";
-			App.coinType = COINTYPE_DASH;
-			App.hdVersions = DashHd.MAINNET;
-			App.rpcExplorer = "https://rpc.digitalcash.dev/";
-			for (let $testnet of $testnets) {
-				$testnet.hidden = true;
-			}
-		} else {
-			App.network = "testnet";
-			App.dbPrefix = "testnet-";
-			App.coinType = COINTYPE_TESTNET;
-			App.hdVersions = DashHd.TESTNET;
-			App.rpcExplorer = "https://trpc.digitalcash.dev/";
-			for (let $testnet of $testnets) {
-				$testnet.removeAttribute("hidden");
-			}
-		}
-		await dbSet("network", App.network);
+	App.$setNetwork = async function (network) {
+		await dbSet("network", network);
+		await App.$init(network);
+	};
 
-		// await App.init();
+	/** @param {String} address */
+	App.$checkLoadBalance = async function (address) {
+		setTimeout(function () {
+			$('[data-id="load-dash-dust"]').textContent = "checking...";
+		}, 100);
+		setTimeout(async function () {
+			await App.$updateDeltas([address]);
+		}, 350);
+	};
+
+	/** @param {Array<String>} addresses */
+	App.$updateDeltas = async function (addresses) {
+		await updateDeltas(addresses);
+		renderAddresses();
+		renderCoins();
+	};
+
+	App._$commitWalletTx = async function (signedTx) {
+		let txid = await App.rpc("sendrawtransaction", signedTx.transaction);
+
+		await commitWalletTx(signedTx);
+		renderAddresses();
+		renderCoins();
+
+		return txid;
+	};
+
+	/** @param {String} address */
+	App.$getBalanceString = async function (address) {
+		let addresses = [address];
+		await App.$updateDeltas(addresses);
+
+		let balance = deltasMap[address]?.balance || 0;
+		let [dashAmount, dustAmount] = App._splitBalance(balance);
+	};
+
+	/**
+	 * @param {Number} balance
+	 * @returns [String, String] - DASH, dust
+	 */
+	App._splitBalance = function (balance) {
+		let dashF = balance / DashTx.SATOSHIS;
+		let dashAmount = dashF.toFixed(3);
+		let dust = balance % 100000;
+		let dustAmount = dust.toString();
+		dustAmount = dustAmount.padStart(5, "0");
+
+		return [dashAmount, dustAmount];
 	};
 
 	/** @param {Event} event */
@@ -325,8 +391,8 @@
 				return;
 			}
 		}
-		void (await App.rpc("sendrawtransaction", signedTx.transaction));
-		void (await commitWalletTx(signedTx));
+
+		void (await App._$commitWalletTx(signedTx));
 	};
 
 	/** @param {Event} event */
@@ -367,12 +433,13 @@
 				return;
 			}
 		}
-		let txid = await App.rpc("sendrawtransaction", signedTx.transaction);
+
+		let txid = await App._$commitWalletTx(signedTx);
+
 		$("[data-id=memo-txid]").textContent = txid;
 		let link = `${App.rpcExplorer}#?method=getrawtransaction&params=["${txid}",1]&submit`;
 		$("[data-id=memo-link]").textContent = link;
 		$("[data-id=memo-link]").href = link;
-		void (await commitWalletTx(signedTx));
 	};
 
 	/**
@@ -548,9 +615,6 @@
 				info.deltas.push(memCoin);
 			}
 		}
-
-		renderAddresses();
-		renderCoins();
 	}
 
 	function renderAddresses() {
@@ -578,7 +642,39 @@
 		}
 	}
 
-	async function init() {
+	/**
+	 * @param {"mainnet"|"testnet"|String} network
+	 */
+	App.$init = async function (network) {
+		App.network = network;
+		if (App.network === MAINNET) {
+			App.dbPrefix = "";
+			App.coinType = COINTYPE_DASH;
+			App.hdVersions = DashHd.MAINNET;
+			App.rpcExplorer = "https://rpc.digitalcash.dev/";
+			App.rpcBaseUrl = `https://api:null@rpc.digitalcash.dev/`;
+			App.p2pWebProxyUrl = "wss://p2p.digitalcash.dev/ws";
+		} else {
+			App.dbPrefix = "testnet-";
+			App.coinType = COINTYPE_TESTNET;
+			App.hdVersions = DashHd.TESTNET;
+			App.rpcExplorer = "https://trpc.digitalcash.dev/";
+			App.rpcBaseUrl = `https://api:null@trpc.digitalcash.dev/`;
+			App.p2pWebProxyUrl = "wss://tp2p.digitalcash.dev/ws";
+		}
+
+		// reset all state
+		addresses = [];
+		changeAddrs = [];
+		receiveAddrs = [];
+		spentAddrs = [];
+		spendableAddrs = [];
+		deltasMap = {};
+		keysMap = {};
+		denomsMap = {};
+
+		App.coinjoinQueues = globalThis.structuredClone(emptyCoinjoinQueues);
+
 		let phrases = dbGet(`${App.dbPrefix}wallet-phrases`, []);
 		let primaryPhrase = phrases[0];
 		if (!primaryPhrase) {
@@ -620,13 +716,13 @@
 			let failed;
 			try {
 				let receiveKey = await xprvReceiveKey.deriveAddress(i); // xprvKey from step 2
-				await addKey(receiveKey, DashHd.RECEIVE, i);
+				await addKey(walletId, accountIndex, receiveKey, DashHd.RECEIVE, i);
 			} catch (e) {
 				failed = true;
 			}
 			try {
 				let changeKey = await xprvChangeKey.deriveAddress(i); // xprvKey from step 2
-				addKey(changeKey, DashHd.CHANGE, i);
+				addKey(walletId, accountIndex, changeKey, DashHd.CHANGE, i);
 			} catch (e) {
 				failed = true;
 			}
@@ -636,47 +732,74 @@
 			}
 		}
 
-		async function addKey(key, usage, i) {
-			let wif = await DashHd.toWif(key.privateKey, { version: App.network });
-			let address = await DashHd.toAddr(key.publicKey, {
-				version: App.network,
-			});
-			let hdpath = `m/44'/${App.coinType}'/${accountIndex}'/${usage}`; // accountIndex from step 2
-
-			// TODO put this somewhere safe
-			// let descriptor = `pkh([${walletId}/${partialPath}/0/${index}])`;
-
-			addresses.push(address);
-			if (usage === DashHd.RECEIVE) {
-				receiveAddrs.push(address);
-			} else if (usage === DashHd.CHANGE) {
-				changeAddrs.push(address);
-			} else {
-				let err = new Error(`unknown usage '${usage}'`);
-				window.alert(err.message);
-				throw err;
-			}
-
-			// note: pkh is necessary here because 'getaddressutxos' is unreliable
-			//       and neither 'getaddressdeltas' nor 'getaddressmempool' have 'script'
-			let pkhBytes = await DashKeys.pubkeyToPkh(key.publicKey);
-			keysMap[address] = {
-				walletId: walletId,
-				index: i,
-				hdpath: hdpath, // useful for multi-account indexing
-				address: address, // XrZJJfEKRNobcuwWKTD3bDu8ou7XSWPbc9
-				wif: wif, // XCGKuZcKDjNhx8DaNKK4xwMMNzspaoToT6CafJAbBfQTi57buhLK
-				key: key,
-				publicKey: DashKeys.utils.bytesToHex(key.publicKey),
-				pubKeyHash: DashKeys.utils.bytesToHex(pkhBytes),
-			};
-		}
-
 		await updateDeltas(addresses);
 		renderAddresses();
-
-		$("body").removeAttribute("hidden");
 		renderCoins();
+
+		let $testnets = $$("[data-network=testnet]");
+		for (let $testnet of $testnets) {
+			$testnet.hidden = App.network === MAINNET;
+		}
+
+		siftDenoms();
+		renderCashDrawer();
+		App.syncCashDrawer();
+
+		App._rawmnlist = await App.rpc("masternodelist");
+		App._chaininfo = await App.rpc("getblockchaininfo");
+		App._evonodes = DashJoin.utils._evonodeMapToList(App._rawmnlist);
+
+		console.log(App._rawmnlist);
+		// 35.166.18.166:19999
+		let index = 5;
+		// let index = Math.floor(Math.random() * App._evonodes.length);
+		// App._evonode = App._evonodes[index];
+		App._evonode = App._evonodes.at(index);
+		// App._evonode = {
+		// 	host: '35.166.18.166:19999',
+		// 	hostname: '35.166.18.166',
+		// 	port: '19999',
+		// };
+		console.info("[info] chosen evonode:", index);
+		console.log(JSON.stringify(App._evonode, null, 2));
+
+		void (await connectToPeer(App._evonode, App._chaininfo.blocks));
+	};
+
+	async function addKey(walletId, accountIndex, key, usage, i) {
+		let wif = await DashHd.toWif(key.privateKey, { version: App.network });
+		let address = await DashHd.toAddr(key.publicKey, {
+			version: App.network,
+		});
+		let hdpath = `m/44'/${App.coinType}'/${accountIndex}'/${usage}`; // accountIndex from step 2
+
+		// TODO put this somewhere safe
+		// let descriptor = `pkh([${walletId}/${partialPath}/0/${index}])`;
+
+		addresses.push(address);
+		if (usage === DashHd.RECEIVE) {
+			receiveAddrs.push(address);
+		} else if (usage === DashHd.CHANGE) {
+			changeAddrs.push(address);
+		} else {
+			let err = new Error(`unknown usage '${usage}'`);
+			window.alert(err.message);
+			throw err;
+		}
+
+		// note: pkh is necessary here because 'getaddressutxos' is unreliable
+		//       and neither 'getaddressdeltas' nor 'getaddressmempool' have 'script'
+		let pkhBytes = await DashKeys.pubkeyToPkh(key.publicKey);
+		keysMap[address] = {
+			walletId: walletId,
+			index: i,
+			hdpath: hdpath, // useful for multi-account indexing
+			address: address, // XrZJJfEKRNobcuwWKTD3bDu8ou7XSWPbc9
+			wif: wif, // XCGKuZcKDjNhx8DaNKK4xwMMNzspaoToT6CafJAbBfQTi57buhLK
+			key: key,
+			publicKey: DashKeys.utils.bytesToHex(key.publicKey),
+			pubKeyHash: DashKeys.utils.bytesToHex(pkhBytes),
+		};
 	}
 
 	let defaultCjSlots = [
@@ -904,8 +1027,8 @@
 				return;
 			}
 		}
-		void (await App.rpc("sendrawtransaction", signedTx.transaction));
-		void (await commitWalletTx(signedTx));
+
+		void (await App._$commitWalletTx(signedTx));
 	}
 
 	function groupSlotsByPriorityAndAmount(slots) {
@@ -1009,49 +1132,71 @@
 		let utxos = getAllUtxos();
 		utxos.sort(sortCoinsByDenomAndSatsDesc);
 
-		let elementStrs = [];
-		let template = $("[data-id=coin-row-tmpl]").content;
-		for (let utxo of utxos) {
-			let amount = utxo.satoshis / SATS;
-			Object.assign(utxo, { amount: amount });
+		requestAnimationFrame(function () {
+			let elementStrs = [];
+			let template = $("[data-id=coin-row-tmpl]").content;
+			for (let utxo of utxos) {
+				let amount = utxo.satoshis / SATS;
+				Object.assign(utxo, { amount: amount });
 
-			let clone = document.importNode(template, true);
-			$("[data-name=coin]", clone).value = [
-				utxo.address,
-				utxo.txid,
-				utxo.outputIndex,
-			].join(",");
-			$("[data-name=address]", clone).textContent = utxo.address;
-			$("[data-name=amount]", clone).textContent = toFixed(utxo.amount, 4);
-			if (utxo.denom) {
-				$("[data-name=amount]", clone).style.fontStyle = "italic";
-				$("[data-name=amount]", clone).style.fontWeight = "bold";
-			} else {
-				//
+				let clone = document.importNode(template, true);
+				$("[data-name=coin]", clone).value = [
+					utxo.address,
+					utxo.txid,
+					utxo.outputIndex,
+				].join(",");
+				$("[data-name=address]", clone).textContent = utxo.address;
+				$("[data-name=amount]", clone).textContent = toFixed(utxo.amount, 4);
+				if (utxo.denom) {
+					$("[data-name=amount]", clone).style.fontStyle = "italic";
+					$("[data-name=amount]", clone).style.fontWeight = "bold";
+				} else {
+					//
+				}
+				$("[data-name=txid]", clone).textContent = utxo.txid;
+				$("[data-name=output-index]", clone).textContent = utxo.index;
+
+				elementStrs.push(clone.firstElementChild.outerHTML);
+				//tableBody.appendChild(clone);
 			}
-			$("[data-name=txid]", clone).textContent = utxo.txid;
-			$("[data-name=output-index]", clone).textContent = utxo.index;
 
-			elementStrs.push(clone.firstElementChild.outerHTML);
-			//tableBody.appendChild(clone);
-		}
+			let totalBalance = DashTx.sum(utxos);
+			let totalAmount = totalBalance / SATS;
+			$("[data-id=total-balance]").innerText = toFixed(totalAmount, 4);
 
-		let totalBalance = DashTx.sum(utxos);
-		let totalAmount = totalBalance / SATS;
-		$("[data-id=total-balance]").innerText = toFixed(totalAmount, 4);
+			let tableBody = $("[data-id=coins-table]");
+			tableBody.textContent = "";
+			tableBody.insertAdjacentHTML("beforeend", elementStrs.join("\n"));
+			//$('[data-id=balances]').innerText = balances.join('\n');
 
-		let tableBody = $("[data-id=coins-table]");
-		tableBody.textContent = "";
-		tableBody.insertAdjacentHTML("beforeend", elementStrs.join("\n"));
-		//$('[data-id=balances]').innerText = balances.join('\n');
+			if (totalBalance >= MIN_BALANCE) {
+				$('[data-id="load-balance"]').hidden = true;
+				return;
+			}
 
-		if (totalBalance < MIN_BALANCE) {
-			setTimeout(function () {
-				window.alert(
-					"Error: Balance too low. Please fill up at CN 💸 and/or DCG 💸.",
-				);
-			}, 300);
-		}
+			let [dashAmount, dustAmount] = App._splitBalance(totalBalance);
+			let loadAddr = receiveAddrs[0]; // TODO reserve
+			let addrQr = new QRCode({
+				content: `dash:${loadAddr}?`, // leave amount blank
+				padding: 4,
+				width: 256,
+				height: 256,
+				color: "#000000",
+				background: "#ffffff",
+				ecl: "M",
+			});
+			let addrSvg = addrQr.svg();
+
+			$('[data-id="load-dash-dust"]').textContent =
+				`${dashAmount} DASH + ${dustAmount} dust`;
+			$('[data-id="dash-total"]').textContent = dashAmount;
+			$('[data-id="dust-total"]').textContent = dustAmount;
+			$('[data-id="load-addr"]').textContent = loadAddr;
+			$('[data-id="load-qr"]').textContent = "";
+			$('[data-id="load-qr"]').insertAdjacentHTML("beforeend", addrSvg);
+			$('[data-id="load-balance-button"]').dataset.address = loadAddr;
+			$('[data-id="load-balance"]').hidden = false;
+		});
 	}
 
 	function siftDenoms() {
@@ -1109,7 +1254,6 @@
 
 		let p2p = DashP2P.create();
 
-		let p2pWebProxyUrl = "wss://tp2p.digitalcash.dev/ws";
 		let query = {
 			access_token: "secret",
 			hostname: evonode.hostname,
@@ -1117,7 +1261,7 @@
 		};
 		let searchParams = new URLSearchParams(query);
 		let search = searchParams.toString();
-		let wsc = new WebSocket(`${p2pWebProxyUrl}?${search}`);
+		let wsc = new WebSocket(`${App.p2pWebProxyUrl}?${search}`);
 
 		await p2p.initWebSocket(wsc, {
 			network: App.network,
@@ -1155,6 +1299,9 @@
 			);
 		});
 
+		/**
+		 * @param {Error} err
+		 */
 		function cleanup(err) {
 			console.error("WebSocket Error:", err);
 			delete App.peers[evonode.host];
@@ -1168,6 +1315,7 @@
 		App.peers[evonode.host] = p2p;
 		return App.peers[evonode.host];
 	}
+	// TODO close all peers
 
 	// 0. 'dsq' broadcast puts a node in the local in-memory pool
 	// 1. 'dsa' requests to be allowed to join a session
@@ -1353,42 +1501,12 @@
 	App.peers = {};
 
 	async function main() {
-		await init();
+		let network = await dbGet("network", MAINNET);
+		$(`[name="dashNetwork"][value="${network}"]`).checked = true;
+		await $(`[name="dashNetwork"]:checked`).onchange();
+		//await App.$init(network);
 
-		App.network = await dbGet("network", MAINNET);
-		$(`[name="dashNetwork"][value="${App.network}"]`).checked = true;
-		$(`[name="dashNetwork"]:checked`).onchange();
-
-		siftDenoms();
-		renderCashDrawer();
-		App.syncCashDrawer();
-
-		App._rawmnlist = await App.rpc("masternodelist");
-		App._chaininfo = await App.rpc("getblockchaininfo");
-		console.log(App._rawmnlist);
-		App._evonodes = DashJoin.utils._evonodeMapToList(App._rawmnlist);
-		// 35.166.18.166:19999
-		let index = 5;
-		// let index = Math.floor(Math.random() * App._evonodes.length);
-		// App._evonode = App._evonodes[index];
-		App._evonode = App._evonodes.at(index);
-		// App._evonode = {
-		// 	host: '35.166.18.166:19999',
-		// 	hostname: '35.166.18.166',
-		// 	port: '19999',
-		// };
-		console.info("[info] chosen evonode:", index);
-		console.log(JSON.stringify(App._evonode, null, 2));
-
-		App.coinjoinQueues = {
-			100001: {}, //      0.00100001
-			1000010: {}, //     0.01000010
-			10000100: {}, //    0.10000100
-			100001000: {}, //   1.00001000
-			1000010000: {}, // 10.00010000
-		};
-
-		void (await connectToPeer(App._evonode, App._chaininfo.blocks));
+		$("body").removeAttribute("hidden");
 	}
 
 	App.createCoinJoinSession = async function () {
@@ -1431,7 +1549,7 @@
 				pubKeyHash: "",
 			};
 			let pkhBytes = await DashKeys.addrToPkh(output.address, {
-				version: network,
+				version: App.network,
 			});
 			output.pubKeyHash = DashKeys.utils.bytesToHex(pkhBytes);
 			outputs.push(output);

@@ -10,6 +10,7 @@
 		<script src="./node_modules/dashkeys/dashkeys.js"></script>
 		<script src="./node_modules/dashhd/dashhd.js"></script>
 		<script src="./node_modules/dashtx/dashtx.js"></script>
+		<script src="./node_modules/qrcode-svg/dist/qrcode.min.js"></script>
 		<script src="./dashp2p.js"></script>
 		<script src="./dashjoin.js"></script>
 		<style>
@@ -91,6 +92,11 @@
 				text-decoration: none;
 				color: inherit;
 			}
+
+			article {
+				margin: auto;
+				max-width: var(--width-card-wide);
+			}
 		</style>
 	</head>
 
@@ -148,6 +154,55 @@
 		</header>
 		<main>
 			<div data-semtab="dashboard">
+				<article data-id="load-balance" hidden>
+					<aside>
+						<br />Balance Too Low (<span data-id="dash-total">0.000</span> DASH
+						+ <span data-id="dust-total">00000</span> dust). Refill Below.
+						<br />
+						<div data-network="testnet" hidden>
+							<em
+								>testnet: you can also use the
+								<a
+									href="http://faucet.test.dash.crowdnode.io/"
+									target="_blank"
+									title="CrowdNode Faucet"
+									>CN 💸</a
+								>
+								and/or
+								<a
+									href="http://faucet.testnet.networks.dash.org"
+									target="_blank"
+									title="Dash Core Group Faucet"
+									>DCG 💸</a
+								>
+								faucets.</em
+							>
+						</div>
+						<br />
+					</aside>
+					<form method="dialog">
+						<label
+							>Scan to Load
+							<small data-id="load-addr">&nbsp;</small>
+							<div data-id="load-qr" style="height: 262px"></div>
+						</label>
+						<small
+							><button
+								type="button"
+								data-id="load-balance-button"
+								data-address=""
+								onclick="
+                                  App.$checkLoadBalance(this.dataset.address);
+                                "
+							>
+								Check Balance
+							</button>
+							<span data-id="load-dash-dust">0.000 DASH + 00000 dust</span>
+						</small>
+					</form>
+					<br />
+					<br />
+				</article>
 				<section>
 					<form>
 						<label data-network="testnet" hidden
@@ -631,6 +686,17 @@
 				</p>
 			</footer>
 		</main>
+
+		<script>
+			window.onerror = function (message, source, lineno, colno, error) {
+				let msg = error.message || message;
+				window.alert(`Error:\n${msg}`);
+			};
+			window.onunhandledrejection = function (ev) {
+				let msg = ev.reason.message;
+				window.alert(`Error:\n${msg}`);
+			};
+		</script>
 
 		<script type="module">
 			import $SemTabs from "./semantic-tabs.js";
