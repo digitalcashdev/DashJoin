@@ -7,16 +7,16 @@
 // reciprocal parsers and packers
 // no backwards-compat with really old legacy clients
 
-var DashP2P = ('object' === typeof module && exports) || {};
+var DashP2P = ("object" === typeof module && exports) || {};
 (function (window, DashP2P) {
-	'use strict';
+	"use strict";
 
 	const DV_LITTLE_ENDIAN = true;
 
 	let EMPTY_CHECKSUM_BYTES = [0x5d, 0xf6, 0xe0, 0xe2];
 	let E_CLOSE = {
-		code: 'E_CLOSE',
-		message: 'promise stream closed',
+		code: "E_CLOSE",
+		message: "promise stream closed",
 	};
 
 	const PAYLOAD_SIZE_MAX = 4 * 1024 * 1024;
@@ -63,7 +63,7 @@ var DashP2P = ('object' === typeof module && exports) || {};
 		const HEADER_SIZE = Sizes.HEADER;
 
 		let p2p = {};
-		p2p.state = 'header';
+		p2p.state = "header";
 		/** @type {Array<Uint8Array>} */
 		p2p.chunks = [];
 		p2p.chunksLength = 0;
@@ -73,21 +73,21 @@ var DashP2P = ('object' === typeof module && exports) || {};
 		p2p.header = null;
 		/** @type {Uint8Array?} */
 		p2p.payload = null;
-		let explicitEvents = ['version', 'verack', 'ping', 'pong'];
+		let explicitEvents = ["version", "verack", "ping", "pong"];
 		p2p._eventStream = Utils.EventStream.create(explicitEvents);
 
 		p2p._wsc = null;
 		p2p.send = function (bytes) {
-			throw new Error('no socket has been initialized');
+			throw new Error("no socket has been initialized");
 		};
 		p2p.close = function () {
-			throw new Error('no socket has been initialized');
+			throw new Error("no socket has been initialized");
 		};
 		p2p._close = function (bytes) {
 			try {
 				p2p._eventStream.close();
 			} catch (e) {
-				console.error('error closing event stream:', e);
+				console.error("error closing event stream:", e);
 			}
 		};
 
@@ -107,12 +107,12 @@ var DashP2P = ('object' === typeof module && exports) || {};
 				try {
 					wsc.close();
 				} catch (e) {
-					console.error('error closing websocket:', e);
+					console.error("error closing websocket:", e);
 				}
 				p2p._close(true);
 			};
 
-			wsc.addEventListener('message', async function (wsevent) {
+			wsc.addEventListener("message", async function (wsevent) {
 				let ab = await wsevent.data.arrayBuffer();
 				let bytes = new Uint8Array(ab);
 				console.log(
@@ -122,7 +122,7 @@ var DashP2P = ('object' === typeof module && exports) || {};
 				p2p.processBytes(bytes);
 			});
 
-			wsc.addEventListener('open', async function () {
+			wsc.addEventListener("open", async function () {
 				{
 					let versionBytes = DashP2P.packers.version({
 						network: network,
@@ -130,66 +130,66 @@ var DashP2P = ('object' === typeof module && exports) || {};
 						addr_recv_port: port,
 						start_height: start_height,
 					});
-					console.log('DEBUG wsc.send(versionBytes)');
+					console.log("DEBUG wsc.send(versionBytes)");
 					wsc.send(versionBytes);
 				}
 
 				{
 					let verackBytes = DashP2P.packers.verack({ network: network });
-					console.log('DEBUG wsc.send(verackBytes)');
+					console.log("DEBUG wsc.send(verackBytes)");
 					wsc.send(verackBytes);
 				}
 			});
 
-			wsc.addEventListener('close', p2p.close);
+			wsc.addEventListener("close", p2p.close);
 
-			let evstream = p2p.createSubscriber(['version', 'verack', 'ping']);
-			console.log('%c subscribed', 'color: red');
+			let evstream = p2p.createSubscriber(["version", "verack", "ping"]);
+			console.log("%c subscribed", "color: red");
 
-			void (await evstream.once('version'));
-			console.log('%c[[version]] PROCESSED', 'color: red');
+			void (await evstream.once("version"));
+			console.log("%c[[version]] PROCESSED", "color: red");
 			// void (await evstream.once('verack'));
 			// console.log('%c[[verack]] PROCESSED', 'color: red');
 
 			(async function () {
 				for (;;) {
-					let msg = await evstream.once('ping');
-					console.log('%c received ping', 'color: red');
+					let msg = await evstream.once("ping");
+					console.log("%c received ping", "color: red");
 					let pongBytes = DashP2P.packers.pong({
 						network: network,
 						nonce: msg.payload,
 					});
-					console.log('%c[[PING]] wsc.send(pongBytes)', 'color: blue;');
+					console.log("%c[[PING]] wsc.send(pongBytes)", "color: blue;");
 					wsc.send(pongBytes);
 				}
-			})().catch(DashP2P.createCatchClose(['ping']));
+			})().catch(DashP2P.createCatchClose(["ping"]));
 
 			return;
 		};
 
 		/** @param {Uint8Array?} */
 		p2p.processBytes = function (chunk) {
-			if (p2p.state === 'error') {
+			if (p2p.state === "error") {
 				p2p._eventStream.rejectAll(p2p.error);
 
 				// in the case of UDP where we miss a packet,
 				// we can log the error but still resume on the next one.
 				p2p.chunks = [];
 				p2p.chunksLength = 0;
-				p2p.state = 'header';
+				p2p.state = "header";
 			}
 
-			if (p2p.state === 'header') {
+			if (p2p.state === "header") {
 				p2p.processHeaderBytes(chunk);
 				return;
 			}
 
-			if (p2p.state === 'payload') {
+			if (p2p.state === "payload") {
 				p2p.processPayloadBytes(chunk);
 				return;
 			}
 
-			if (p2p.state === 'result') {
+			if (p2p.state === "result") {
 				let cmd = p2p.header.command;
 				let len = p2p.payload?.length || 0;
 				console.info(`%c[[RCV: ${cmd}]]`, `color: purple`, len);
@@ -200,14 +200,14 @@ var DashP2P = ('object' === typeof module && exports) || {};
 				};
 				p2p._eventStream.emit(msg.command, msg);
 
-				p2p.state = 'header';
+				p2p.state = "header";
 				p2p.processBytes(chunk);
 				return;
 			}
 
 			let err = new Error(`developer error: unknown state '${p2p.state}'`);
 			p2p._eventStream.rejectAll(err);
-			p2p.state = 'header';
+			p2p.state = "header";
 			p2p.processBytes(chunk);
 		};
 
@@ -221,7 +221,7 @@ var DashP2P = ('object' === typeof module && exports) || {};
 			}
 			if (p2p.chunksLength < HEADER_SIZE) {
 				if (chunk) {
-					console.log('... partial header');
+					console.log("... partial header");
 				}
 				return;
 			}
@@ -241,7 +241,7 @@ var DashP2P = ('object' === typeof module && exports) || {};
 			try {
 				p2p.header = Parsers.header(chunk);
 			} catch (e) {
-				p2p.state = 'error';
+				p2p.state = "error";
 				p2p.error = new Error(`header parse error: ${e.message}`);
 				// TODO maybe throw away all chunks?
 				console.error(e);
@@ -249,9 +249,9 @@ var DashP2P = ('object' === typeof module && exports) || {};
 				return;
 			}
 
-			p2p.state = 'payload';
+			p2p.state = "payload";
 			if (p2p.header.payloadSize > DashP2P.PAYLOAD_SIZE_MAX) {
-				p2p.state = 'error';
+				p2p.state = "error";
 				p2p.error = new Error(
 					`header's payload size ${p2p.header.payloadSize} is larger than the maximum allowed size of ${DashP2P.PAYLOAD_SIZE_MAX}`,
 				);
@@ -260,7 +260,7 @@ var DashP2P = ('object' === typeof module && exports) || {};
 
 			if (p2p.header.payloadSize === 0) {
 				// 'payload' is complete (skipped), on to the 'result'
-				p2p.state = 'result';
+				p2p.state = "result";
 				p2p.payload = null;
 			}
 
@@ -278,7 +278,7 @@ var DashP2P = ('object' === typeof module && exports) || {};
 			}
 			if (p2p.chunksLength < p2p.header.payloadSize) {
 				if (chunk) {
-					console.log('... partial payload');
+					console.log("... partial payload");
 				}
 				return;
 			}
@@ -293,7 +293,7 @@ var DashP2P = ('object' === typeof module && exports) || {};
 				p2p.chunksLength += chunk.byteLength;
 				chunk = chunk.slice(0, p2p.header.payloadSize);
 			}
-			p2p.state = 'result';
+			p2p.state = "result";
 			p2p.payload = chunk;
 
 			let nextChunk = p2p.chunks.pop();
@@ -305,7 +305,7 @@ var DashP2P = ('object' === typeof module && exports) || {};
 
 	DashP2P.createCatchClose = function (names) {
 		function catchClose(err) {
-			if (err.code !== 'E_CLOSE') {
+			if (err.code !== "E_CLOSE") {
 				console.error(
 					`error caused '${names}' event stream to close unexpectedly:`,
 				);
@@ -316,7 +316,7 @@ var DashP2P = ('object' === typeof module && exports) || {};
 	};
 
 	DashP2P.catchClose = function (err) {
-		if (err.code !== 'E_CLOSE') {
+		if (err.code !== "E_CLOSE") {
 			console.error(`error caused event stream to close unexpectedly:`);
 			console.error(err);
 		}
@@ -520,8 +520,8 @@ var DashP2P = ('object' === typeof module && exports) || {};
 	Packers._checksum = function (payload) {
 		// TODO this should be node-specific in node for performance reasons
 		if (Crypto.createHash) {
-			let hash = Crypto.createHash('sha256').update(payload).digest();
-			let hashOfHash = Crypto.createHash('sha256').update(hash).digest();
+			let hash = Crypto.createHash("sha256").update(payload).digest();
+			let hashOfHash = Crypto.createHash("sha256").update(hash).digest();
 			return hashOfHash.slice(0, 4);
 		}
 
@@ -541,7 +541,7 @@ var DashP2P = ('object' === typeof module && exports) || {};
 	/* jshint maxstatements:150 */
 	/* (it's simply very complex, okay?) */
 	Packers.version = function ({
-		network = 'mainnet',
+		network = "mainnet",
 		message,
 		protocol_version = Packers.PROTOCOL_VERSION,
 		// alias of addr_trans_services
@@ -550,7 +550,7 @@ var DashP2P = ('object' === typeof module && exports) || {};
 		addr_recv_ip, // required to match
 		addr_recv_port, // required to match
 		addr_trans_services = [],
-		addr_trans_ip = '127.0.0.1',
+		addr_trans_ip = "127.0.0.1",
 		addr_trans_port = Math.ceil(65535 * Math.random()),
 		start_height,
 		nonce = null,
@@ -558,7 +558,7 @@ var DashP2P = ('object' === typeof module && exports) || {};
 		relay = null,
 		mnauth_challenge = null,
 	}) {
-		const command = 'version';
+		const command = "version";
 
 		if (!Array.isArray(addr_recv_services)) {
 			throw new Error('"addr_recv_services" must be an array');
@@ -682,10 +682,10 @@ var DashP2P = ('object' === typeof module && exports) || {};
 			ADDR_TRANS_SERVICES_OFFSET + SIZES.ADDR_TRANS_SERVICES;
 		{
 			//@ts-ignore - addr_trans_ip has a default value
-			let isIpv6Mapped = addr_trans_ip.startsWith('::ffff:');
+			let isIpv6Mapped = addr_trans_ip.startsWith("::ffff:");
 			if (isIpv6Mapped) {
 				//@ts-ignore - addr_trans_ip has a default value
-				let ipv6Parts = addr_trans_ip.split(':');
+				let ipv6Parts = addr_trans_ip.split(":");
 				let ipv4Str = ipv6Parts.at(-1);
 				//@ts-ignore - guaranteed to be defined, actually
 				let ipBytesBE = Utils._ipv4ToBytesBE(ipv4Str);
@@ -718,7 +718,7 @@ var DashP2P = ('object' === typeof module && exports) || {};
 		payload.set(nonce, NONCE_OFFSET);
 
 		let USER_AGENT_BYTES_OFFSET = NONCE_OFFSET + SIZES.NONCE;
-		if (null !== user_agent && typeof user_agent === 'string') {
+		if (null !== user_agent && typeof user_agent === "string") {
 			let userAgentSize = user_agent.length;
 			payload.set([userAgentSize], USER_AGENT_BYTES_OFFSET);
 			let uaBytes = textEncoder.encode(user_agent);
@@ -768,8 +768,8 @@ var DashP2P = ('object' === typeof module && exports) || {};
 	 * @param {NetworkName} opts.network - "mainnet", "testnet", etc
 	 * @param {Uint8Array?} [opts.message] - preallocated bytes
 	 */
-	Packers.verack = function ({ network = 'mainnet', message }) {
-		const command = 'verack';
+	Packers.verack = function ({ network = "mainnet", message }) {
+		const command = "verack";
 		let [bytes] = Packers._alloc(message, Sizes.VERACK);
 
 		void Packers.message({ network, command, bytes });
@@ -785,8 +785,8 @@ var DashP2P = ('object' === typeof module && exports) || {};
 	 * @param {Uint8Array?} [opts.message]
 	 * @param {Uint8Array} opts.nonce
 	 */
-	Packers.pong = function ({ network = 'mainnet', message = null, nonce }) {
-		const command = 'pong';
+	Packers.pong = function ({ network = "mainnet", message = null, nonce }) {
+		const command = "pong";
 		let [bytes, payload] = Packers._alloc(message, Sizes.PING);
 
 		payload.set(nonce, 0);
@@ -819,7 +819,7 @@ var DashP2P = ('object' === typeof module && exports) || {};
 		index += SIZES.MAGIC_BYTES; // +4 = 4
 
 		let commandBuf = bytes.subarray(index, index + SIZES.COMMAND_NAME);
-		let command = '';
+		let command = "";
 		{
 			let commandEnd = commandBuf.indexOf(0x00);
 			if (commandEnd !== -1) {
@@ -906,7 +906,7 @@ var DashP2P = ('object' === typeof module && exports) || {};
 		};
 
 		stream.emit = function (eventname, msg) {
-			if (eventname === 'error') {
+			if (eventname === "error") {
 				return stream.rejectAll(msg);
 			}
 			for (let p of stream._connections) {
@@ -921,7 +921,7 @@ var DashP2P = ('object' === typeof module && exports) || {};
 					continue;
 				}
 
-				let hasCatchall = p._events.includes('*');
+				let hasCatchall = p._events.includes("*");
 				if (hasCatchall) {
 					p._resolve(msg);
 				}
@@ -934,7 +934,7 @@ var DashP2P = ('object' === typeof module && exports) || {};
 			}
 			let handled = false;
 			for (let p of stream._connections) {
-				let handlesErrors = p._events.includes('error');
+				let handlesErrors = p._events.includes("error");
 				if (!handlesErrors) {
 					continue;
 				}
@@ -992,8 +992,8 @@ var DashP2P = ('object' === typeof module && exports) || {};
 		 */
 		p.once = async function (eventname) {
 			if (p.closed) {
-				let err = new Error('cannot receive new events after close');
-				Object.assign(err, { code: 'E_ALREADY_CLOSED' });
+				let err = new Error("cannot receive new events after close");
+				Object.assign(err, { code: "E_ALREADY_CLOSED" });
 				throw err;
 			}
 
@@ -1005,10 +1005,10 @@ var DashP2P = ('object' === typeof module && exports) || {};
 				let err = new Error(
 					`call stream.createSubscriber(['*']) or conn.once('*') for default events`,
 				);
-				Object.assign(err, { code: 'E_NO_EVENTS' });
+				Object.assign(err, { code: "E_NO_EVENTS" });
 				throw err;
 			}
-			console.log('%c[[RESUB]]', 'color: red; font-weight: bold;', p._events);
+			console.log("%c[[RESUB]]", "color: red; font-weight: bold;", p._events);
 
 			return await p._next();
 		};
@@ -1132,7 +1132,7 @@ var DashP2P = ('object' === typeof module && exports) || {};
 		let u8s = [];
 		// let u8s = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff /*,0,0,0,0*/];
 
-		let octets = ipv4.split('.');
+		let octets = ipv4.split(".");
 		for (let octet of octets) {
 			let int8 = parseInt(octet);
 			u8s.push(int8);
@@ -1255,6 +1255,6 @@ var DashP2P = ('object' === typeof module && exports) || {};
 	//@ts-ignore
 	window.DashP2P = DashP2P;
 })(globalThis.window || {}, DashP2P);
-if ('object' === typeof module) {
+if ("object" === typeof module) {
 	module.exports = DashP2P;
 }
