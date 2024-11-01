@@ -59,9 +59,12 @@
 	App.hdVersions = DashHd.MAINNET;
 	App.dbPrefix = "";
 	App.customRpcUrl = "";
+	App.customP2pUrl = "";
 	App.rpcExplorer = "";
 	App.rpcBaseUrl = "";
 	App.p2pWebProxyUrl = "";
+
+	let sessionSalt = "";
 
 	/** @type {Array<String>} */
 	let addresses = [];
@@ -86,12 +89,32 @@
 		100001000: {}, //   1.00001000
 		1000010000: {}, // 10.00010000
 	};
-	App.coinjoinQueues = globalThis.structuredClone(emptyCoinjoinQueues);
-	App._rawmnlist = [];
-	App._chaininfo = {}; // TODO
-	App._evonodes = [];
-	App._evonode = {}; // TODO
-	App.peers = {}; // TODO
+	App.mainnet = {
+		network: "mainnet",
+		initialized: false,
+		coinjoinQueues: globalThis.structuredClone(emptyCoinjoinQueues),
+		_rawmnlist: [],
+		_chaininfo: {
+			blocks: 0, // height
+		},
+		_evonodes: [],
+		_evonode: {}, // TODO
+		/** @type {Object.<String, ReturnType<typeof DashP2P.create>>} */
+		peers: {},
+	};
+	App.testnet = {
+		network: "testnet",
+		initialized: false,
+		coinjoinQueues: globalThis.structuredClone(emptyCoinjoinQueues),
+		_rawmnlist: [],
+		_chaininfo: {
+			blocks: 0, // height
+		},
+		_evonodes: [],
+		_evonode: {}, // TODO
+		/** @type {Object.<String, ReturnType<typeof DashP2P.create>>} */
+		peers: {},
+	};
 
 	let keyUtils = {
 		getPrivateKey: async function (txInput, i) {
@@ -224,6 +247,155 @@
 	App.$setNetwork = async function (network) {
 		await dbSet("network", network);
 		await App.$init(network);
+
+		await App.initP2p();
+	};
+
+	App.$updateRpcUrl = async function () {
+		// TODO save to db (and restore on init)
+
+		//@ts-expect-error
+		let customRpcUrl = document.querySelector("[name=rpcUrl]").value;
+
+		let canParse = URL.canParse(customRpcUrl);
+		if (!canParse) {
+			App.customRpcUrl = "";
+			return;
+		}
+		App.customRpcUrl = customRpcUrl;
+
+		// let networkInfo = App.testnet;
+		// if (App.network === MAINNET) {
+		// 	networkInfo = App.mainnet;
+		// }
+		// networkInfo.initialized = false;
+		// await App.$init();
+	};
+
+	App.$updateP2pUrl = async function () {
+		// TODO save to db (and restore on init)
+
+		//@ts-expect-error
+		let customP2pUrl = document.querySelector("[name=p2pUrl]").value;
+
+		let canParse = URL.canParse(customP2pUrl);
+		if (!canParse) {
+			App.customP2pUrl = "";
+			return;
+		}
+		App.customP2pUrl = customP2pUrl;
+
+		// let networkInfo = App.testnet;
+		// if (App.network === MAINNET) {
+		// 	networkInfo = App.mainnet;
+		// }
+		// networkInfo.initialized = false;
+		// await App.$init();
+	};
+
+	/**
+	 * @param {String} phrase
+	 * @param {String} salt
+	 * @param {Number} accountIndex
+	 */
+	App.$saveWallet = async function (phrase, salt, accountIndex) {
+		await DashPhrase.verify(phrase);
+
+		let phrases = dbGet(`${App.dbPrefix}wallet-phrases`, []);
+		for (;;) {
+			let hasPhrase = phrases.includes(phrase);
+			if (!hasPhrase) {
+				break;
+			}
+			removeElement(phrases, phrase);
+		}
+		phrases.unshift(phrase);
+		dbSet(`${App.dbPrefix}wallet-phrases`, phrases);
+
+		let primarySeedBytes = await DashPhrase.toSeed(phrase, sessionSalt);
+		let walletKey = await DashHd.fromSeed(primarySeedBytes);
+		let walletId = await DashHd.toId(walletKey);
+		dbSet(`wallet-${walletId}-account-index`, accountIndex);
+
+		$('[data-id="wallet-status"]').textContent = "";
+		setTimeout(async function () {
+			$('[data-id="wallet-status"]').textContent = "updating...";
+			// await App._$walletUpdate(phrase, salt, accountIndex);
+			await App.$init(App.network);
+		}, 100);
+		setTimeout(function () {
+			$('[data-id="wallet-status"]').textContent = "updated";
+		}, 550);
+		setTimeout(function () {
+			$('[data-id="wallet-status"]').textContent = "";
+		}, 1500);
+	};
+
+	/**
+	 * @param {String} phrase
+	 * @param {String} salt
+	 * @param {Number} accountIndex
+	 */
+	App._$walletUpdate = async function (phrase, salt, accountIndex) {
+		sessionSalt = salt || "";
+
+		let seedBytes = await DashPhrase.toSeed(phrase, sessionSalt);
+		let seedHex = DashKeys.utils.bytesToHex(seedBytes);
+
+		$('[name="walletPhrase"]').value = phrase;
+		$('[name="walletSeed"]').value = seedHex;
+		$('[name="walletAccount"]').value = accountIndex;
+		$("[data-id=wallet-path]").value =
+			`m/44'/${App.coinType}'/${accountIndex}'`;
+
+		// $('[name="walletPhrase"]').type = "password"; // delayed to avoid pw prompt
+		$('[name="walletSeed"]').type = "password"; // delayed to avoid pw prompt
+		// $('[name="phraseSalt"]').type = "password"; // delayed to avoid pw prompt
+	};
+
+	App._walletDerive = async function (phrase, salt, accountIndex) {
+		// reset all key & address state
+		addresses = [];
+		changeAddrs = [];
+		receiveAddrs = [];
+		spentAddrs = [];
+		spendableAddrs = [];
+		deltasMap = {};
+		keysMap = {};
+
+		let primarySeedBytes = await DashPhrase.toSeed(phrase, sessionSalt);
+		let walletKey = await DashHd.fromSeed(primarySeedBytes);
+		let walletId = await DashHd.toId(walletKey);
+
+		let accountKey = await walletKey.deriveAccount(0, {
+			purpose: 44, // BIP-44 (default)
+			coinType: App.coinType,
+			versions: App.hdVersions,
+		});
+		let xprvReceiveKey = await accountKey.deriveXKey(DashHd.RECEIVE);
+		let xprvChangeKey = await accountKey.deriveXKey(DashHd.CHANGE);
+
+		let previousIndex = 0;
+		let last = previousIndex + 50;
+		for (let i = previousIndex; i < last; i += 1) {
+			let failed;
+			try {
+				let receiveKey = await xprvReceiveKey.deriveAddress(i); // xprvKey from step 2
+				await addKey(walletId, accountIndex, receiveKey, DashHd.RECEIVE, i);
+			} catch (e) {
+				failed = true;
+			}
+			try {
+				let changeKey = await xprvChangeKey.deriveAddress(i); // xprvKey from step 2
+				addKey(walletId, accountIndex, changeKey, DashHd.CHANGE, i);
+			} catch (e) {
+				failed = true;
+			}
+			if (failed) {
+				// to make up for skipping on error
+				last += 1;
+			}
+		}
 	};
 
 	/** @param {String} address */
@@ -251,15 +423,6 @@
 		renderCoins();
 
 		return txid;
-	};
-
-	/** @param {String} address */
-	App.$getBalanceString = async function (address) {
-		let addresses = [address];
-		await App.$updateDeltas(addresses);
-
-		let balance = deltasMap[address]?.balance || 0;
-		let [dashAmount, dustAmount] = App._splitBalance(balance);
 	};
 
 	/**
@@ -400,7 +563,12 @@
 		event.preventDefault();
 
 		let address = $("[name=exportAddress]").value;
-		let privKey = await keyUtils.getPrivateKey({ address });
+		let privKey;
+		try {
+			privKey = await keyUtils.getPrivateKey({ address });
+		} catch (e) {
+			window.alert(`invalid address '${address}'`);
+		}
 		let wif = await DashKeys.privKeyToWif(privKey, { version: App.network });
 
 		$("[data-id=export-wif]").textContent = wif;
@@ -663,74 +831,22 @@
 			App.p2pWebProxyUrl = "wss://tp2p.digitalcash.dev/ws";
 		}
 
-		// reset all state
-		addresses = [];
-		changeAddrs = [];
-		receiveAddrs = [];
-		spentAddrs = [];
-		spendableAddrs = [];
-		deltasMap = {};
-		keysMap = {};
 		denomsMap = {};
-
-		App.coinjoinQueues = globalThis.structuredClone(emptyCoinjoinQueues);
 
 		let phrases = dbGet(`${App.dbPrefix}wallet-phrases`, []);
 		let primaryPhrase = phrases[0];
 		if (!primaryPhrase) {
 			primaryPhrase = await DashPhrase.generate(128);
-			dbSet(`${App.dbPrefix}wallet-phrases`, [primaryPhrase]);
+			//dbSet(`${App.dbPrefix}wallet-phrases`, [primaryPhrase]);
 		}
 
-		let primarySalt = "";
-		let primarySeedBytes = await DashPhrase.toSeed(primaryPhrase, primarySalt);
-		let primarySeedHex = DashKeys.utils.bytesToHex(primarySeedBytes);
-		$('[name="walletPhrase"]').value = primaryPhrase;
-		$('[name="walletPhrase"]').type = "password"; // delayed to avoid password prompt
-		$('[name="walletSeed"]').value = primarySeedHex;
-		$('[name="walletSeed"]').type = "password"; // delayed to avoid password prompt
+		let primarySeedBytes = await DashPhrase.toSeed(primaryPhrase, sessionSalt);
+		let walletKey = await DashHd.fromSeed(primarySeedBytes);
+		let walletId = await DashHd.toId(walletKey);
+		let accountIndex = await dbGet(`wallet-${walletId}-account-index`, 0);
 
-		let accountIndex = 0;
-		$("[data-id=wallet-account]").value =
-			`m/44'/${App.coinType}'/${accountIndex}'`;
-
-		let walletId = "";
-		let xprvReceiveKey;
-		let xprvChangeKey;
-		{
-			let walletKey = await DashHd.fromSeed(primarySeedBytes);
-			walletId = await DashHd.toId(walletKey);
-
-			let accountKey = await walletKey.deriveAccount(0, {
-				purpose: 44, // BIP-44 (default)
-				coinType: App.coinType,
-				versions: App.hdVersions,
-			});
-			xprvReceiveKey = await accountKey.deriveXKey(DashHd.RECEIVE);
-			xprvChangeKey = await accountKey.deriveXKey(DashHd.CHANGE);
-		}
-
-		let previousIndex = 0;
-		let last = previousIndex + 50;
-		for (let i = previousIndex; i < last; i += 1) {
-			let failed;
-			try {
-				let receiveKey = await xprvReceiveKey.deriveAddress(i); // xprvKey from step 2
-				await addKey(walletId, accountIndex, receiveKey, DashHd.RECEIVE, i);
-			} catch (e) {
-				failed = true;
-			}
-			try {
-				let changeKey = await xprvChangeKey.deriveAddress(i); // xprvKey from step 2
-				addKey(walletId, accountIndex, changeKey, DashHd.CHANGE, i);
-			} catch (e) {
-				failed = true;
-			}
-			if (failed) {
-				// to make up for skipping on error
-				last += 1;
-			}
-		}
+		await App._$walletUpdate(primaryPhrase, sessionSalt, accountIndex);
+		await App._walletDerive(primaryPhrase, sessionSalt, accountIndex);
 
 		await updateDeltas(addresses);
 		renderAddresses();
@@ -744,26 +860,40 @@
 		siftDenoms();
 		renderCashDrawer();
 		App.syncCashDrawer();
+	};
 
-		App._rawmnlist = await App.rpc("masternodelist");
-		App._chaininfo = await App.rpc("getblockchaininfo");
-		App._evonodes = DashJoin.utils._evonodeMapToList(App._rawmnlist);
+	App.initP2p = async function () {
+		let networkInfo = App.mainnet;
+		if (App.network !== MAINNET) {
+			networkInfo = App.testnet;
+		}
+		if (!networkInfo.initialized) {
+			networkInfo._rawmnlist = await App.rpc("masternodelist");
+			networkInfo._chaininfo = await App.rpc("getblockchaininfo");
+			networkInfo._evonodes = DashJoin.utils._evonodeMapToList(
+				networkInfo._rawmnlist,
+			);
+			networkInfo.initialized = true;
+		}
 
-		console.log(App._rawmnlist);
+		console.log(networkInfo._rawmnlist);
 		// 35.166.18.166:19999
 		let index = 5;
 		// let index = Math.floor(Math.random() * App._evonodes.length);
 		// App._evonode = App._evonodes[index];
-		App._evonode = App._evonodes.at(index);
+		networkInfo._evonode = networkInfo._evonodes.at(index);
 		// App._evonode = {
 		// 	host: '35.166.18.166:19999',
 		// 	hostname: '35.166.18.166',
 		// 	port: '19999',
 		// };
 		console.info("[info] chosen evonode:", index);
-		console.log(JSON.stringify(App._evonode, null, 2));
+		console.log(JSON.stringify(networkInfo._evonode, null, 2));
 
-		void (await connectToPeer(App._evonode, App._chaininfo.blocks));
+		void (await connectToPeer(
+			networkInfo._evonode,
+			networkInfo._chaininfo.blocks,
+		));
 	};
 
 	async function addKey(walletId, accountIndex, key, usage, i) {
@@ -1248,8 +1378,13 @@
 	}
 
 	async function connectToPeer(evonode, height) {
-		if (App.peers[evonode.host]) {
-			return App.peers[evonode.host];
+		let networkInfo = App.mainnet;
+		if (App.network !== MAINNET) {
+			networkInfo = App.testnet;
+		}
+
+		if (networkInfo.peers[evonode.host]) {
+			return networkInfo.peers[evonode.host];
 		}
 
 		let p2p = DashP2P.create();
@@ -1261,7 +1396,23 @@
 		};
 		let searchParams = new URLSearchParams(query);
 		let search = searchParams.toString();
-		let wsc = new WebSocket(`${App.p2pWebProxyUrl}?${search}`);
+		let p2pWebProxyUrl = App.customP2pUrl;
+		if (p2pWebProxyUrl.length === 0) {
+			p2pWebProxyUrl = App.p2pWebProxyUrl;
+		}
+
+		let sep = "?";
+		let hasQuery = p2pWebProxyUrl.includes("?");
+		if (hasQuery) {
+			sep = "&";
+		}
+		let wsc;
+		try {
+			wsc = new WebSocket(`${p2pWebProxyUrl}${sep}${search}`);
+		} catch (e) {
+			console.error(`DEBUG WS error`, e);
+			console.error(e);
+		}
 
 		await p2p.initWebSocket(wsc, {
 			network: App.network,
@@ -1289,7 +1440,8 @@
 				timestamp_unix: dsq.timestamp_unix,
 			};
 
-			App.coinjoinQueues[dsq.denomination][evonode.host] = dsqStatus;
+			//@ts-expect-error
+			networkInfo.coinjoinQueues[dsq.denomination][evonode.host] = dsqStatus;
 			console.log(
 				"%c[[DSQ]]",
 				"color: #bada55",
@@ -1304,16 +1456,16 @@
 		 */
 		function cleanup(err) {
 			console.error("WebSocket Error:", err);
-			delete App.peers[evonode.host];
+			delete networkInfo.peers[evonode.host];
 			for (let denom of DashJoin.DENOMS) {
-				delete App.coinjoinQueues[denom][evonode.host];
+				delete networkInfo.coinjoinQueues[denom][evonode.host];
 			}
 			p2p.close();
 		}
 		wsc.addEventListener("error", cleanup);
 
-		App.peers[evonode.host] = p2p;
-		return App.peers[evonode.host];
+		networkInfo.peers[evonode.host] = p2p;
+		return networkInfo.peers[evonode.host];
 	}
 	// TODO close all peers
 
@@ -1332,7 +1484,12 @@
 		outputs, // [{ pubKeyHash, satoshis }]
 		collateralTxes, // (for dsa and dsi) any 2 txes having fees >=0.00010000 more than necessary
 	) {
-		let p2p = App.peers[evonode.host];
+		let networkInfo = App.mainnet;
+		if (App.network !== MAINNET) {
+			networkInfo = App.testnet;
+		}
+
+		let p2p = networkInfo.peers[evonode.host];
 		if (!p2p) {
 			throw new Error(`'${evonode.host}' is not connected`);
 		}
@@ -1362,7 +1519,7 @@
 		{
 			let collateralTx = collateralTxes.shift();
 			let dsa = {
-				network: App.network,
+				network: networkInfo.network,
 				message: message,
 				denomination: denomination,
 				collateralTx: collateralTx,
@@ -1398,7 +1555,7 @@
 		{
 			let collateralTx = collateralTxes.shift();
 			let dsiBytes = DashJoin.packers.dsi({
-				network: App.network,
+				network: networkInfo.network,
 				message: message,
 				inputs: inputs,
 				collateralTx: collateralTx,
@@ -1423,7 +1580,7 @@
 			assertSelectedOutputs(dsfTxRequest, outputs, inputs.length);
 
 			let dssBytes = DashJoin.packers.dss({
-				network: App.network,
+				network: networkInfo.network,
 				message: message,
 				inputs: signedInputs,
 			});
@@ -1507,6 +1664,8 @@
 		//await App.$init(network);
 
 		$("body").removeAttribute("hidden");
+
+		await App.initP2p();
 	}
 
 	App.createCoinJoinSession = async function () {

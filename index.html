@@ -541,6 +541,19 @@
 				<br />
 				<section>
 					<form>
+						<label
+							>Export Address to WIF
+							<small>base58check-encoded pkh</small>
+							<input
+								type="text"
+								name="exportAddress"
+								placeholder="ex: ybLxVb3aspSHFgxM1qTyuBSXnjAqLFEG8P"
+							/>
+						</label>
+						<pre><code data-id="export-wif"><em>output: private key as wif</em></code></pre>
+						<button type="button" onclick="App.$exportWif(event)">
+							Export WIF
+						</button>
 						<details>
 							<summary>
 								Spent Addresses (<span data-id="spent-count">0</span>)
@@ -586,6 +599,7 @@
     document.querySelector('[data-id=export-wif]').innerHTML = '<em>ex: XK5DHnAiSj6HQNsNcDkawd9qdp8UFMdYftdVZFuRreTMJtbJhk8i</em>';
     document.querySelector('[name=exportAddress]').placeholder = 'ex: XyBmeuLa8y3D3XmzPvCTj5PVh7WvMPkLn1';
     document.querySelector('[name=rpcUrl]').placeholder = 'ex: https://api:null@rpc.digitcash.dev:443/';
+    document.querySelector('[name=p2pUrl]').placeholder = 'ex: wss://api:null@p2p.digitcash.dev:443/ws?access_token=';
     App.$setNetwork('mainnet');
                                     "
 									checked="checked"
@@ -601,6 +615,7 @@
     document.querySelector('[data-id=export-wif]').innerHTML = '<em>ex: cS3PYan28pAnfZ8St6braMrhb61wosv8AQKWpUnEhSKVrqVvSR8p</em>';
     document.querySelector('[name=exportAddress]').placeholder = 'ex: yh82paUZiCxwrWkXZHygjgMbCB2ovHGRX7'
     document.querySelector('[name=rpcUrl]').placeholder = 'ex: https://api:null@trpc.digitcash.dev:443/';
+    document.querySelector('[name=p2pUrl]').placeholder = 'ex: wss://api:null@tp2p.digitcash.dev:443/ws?access_token=';
     App.$setNetwork('testnet');
                                     "
 								/>
@@ -609,12 +624,22 @@
 						</label>
 						<label
 							>RPC URL
-							<small>to fetch and submit data</small>
+							<small>to fetch and submit tx data</small>
 							<input
 								type="url"
 								name="rpcUrl"
 								placeholder="ex: https://api:null@rpc.digitcash.dev:443"
 								onchange="ProposalApp.$updateRpcUrl();"
+							/>
+						</label>
+						<label
+							>P2P URL
+							<small>for CoinJoin</small>
+							<input
+								type="url"
+								name="p2pUrl"
+								placeholder="ex: wss://api:null@p2p.digitcash.dev:443/ws?access_token="
+								onchange="ProposalApp.$updateP2pUrl();"
 							/>
 						</label>
 					</form>
@@ -623,11 +648,47 @@
 					<header>
 						<h3>Wallet</h3>
 					</header>
-					<form id="wallet-form" method="dialog">
+					<form
+						id="wallet-form"
+						method="dialog"
+						onsubmit="
+                          App.$saveWallet(
+                            document.querySelector('[name=walletPhrase]').value,
+                            document.querySelector('[name=phraseSalt]').value,
+                            document.querySelector('[name=walletAccount]').value,
+                          );
+                        "
+					>
 						<label
-							>Wallet Phrase
-							<small>12-word seed</small>
+							>12-Word Wallet Phrase
+							<small
+								data-id="wallet-phrase-toggle"
+								onclick="
+                                  let $mask = document.querySelector('[name=walletPhraseMask]');
+                                  let $secret = document.querySelector('[name=walletPhrase]');
+                                  let $toggle = document.querySelector('[data-id=wallet-phrase-toggle]');
+                                  if ($secret.hidden) {
+                                    $toggle.textContent = 'lock 🔐';
+                                    $secret.hidden = false;
+                                    $secret.type = 'text';
+                                    $mask.hidden = true;
+                                  } else {
+                                    $toggle.textContent = 'reveal 🔎';
+                                    $secret.hidden = true;
+                                    $secret.type = 'password';
+                                    $mask.hidden = false;
+                                  }
+                                "
+								>reveal 🔎</small
+							>
 							<input
+								disabled
+								type="text"
+								name="walletPhraseMask"
+								placeholder="  ** reveal to view or edit **"
+							/>
+							<input
+								hidden
 								type="text"
 								name="walletPhrase"
 								placeholder="ex: zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong"
@@ -635,44 +696,87 @@
 						</label>
 						<label
 							>Phrase Salt
-							<small>for advanced users only</small>
+							<small
+								data-id="phrase-salt-toggle"
+								onclick="
+                                  let $mask = document.querySelector('[name=phraseSaltMask]');
+                                  let $secret = document.querySelector('[name=phraseSalt]');
+                                  let $toggle = document.querySelector('[data-id=phrase-salt-toggle]');
+                                  if ($secret.hidden) {
+                                    $toggle.textContent = 'lock 🔐';
+                                    $secret.hidden = false;
+                                    $secret.type = 'text';
+                                    $mask.hidden = true;
+                                  } else {
+                                    $toggle.textContent = 'reveal 🔎';
+                                    $secret.hidden = true;
+                                    $secret.type = 'password';
+                                    $mask.hidden = false;
+                                  }
+                                "
+								>reveal 🔎</small
+							>
 							<input
-								type="text"
-								data-id="phrase-salt"
-								placeholder="ex: TREZOR"
-								value=""
 								disabled
+								type="text"
+								name="phraseSaltMask"
+								placeholder="  ** reveal to view or edit **"
+							/>
+							<input
+								hidden
+								type="text"
+								name="phraseSalt"
+								placeholder="ex: TREZOR (usually left empty)"
+								value=""
 							/>
 						</label>
 						<label
-							>Wallet Seed <small>pbkdf2 bytes</small>
-							<br />
-							<input disabled type="text" name="walletSeed" value="" />
-						</label>
+							><details>
+								<summary>Wallet Seed (pbkdf2)</summary>
+								<small
+									data-id="wallet-seed-toggle"
+									onclick="
+                                  let $secret = document.querySelector('[name=walletSeed]');
+                                  let $toggle = document.querySelector('[data-id=wallet-seed-toggle]');
+                                  if ($secret.type === 'password') {
+                                    $toggle.textContent = 'lock 🔐';
+                                    $secret.type = 'text';
+                                  } else {
+                                    $toggle.textContent = 'reveal 🔎';
+                                    $secret.type = 'password';
+                                  }
+                                "
+									>reveal 🔎</small
+								>
+								<br />
+								<input
+									disabled
+									name="walletSeed"
+									type="text"
+									value=""
+								/></details
+						></label>
 						<label
 							>HD Account
-							<small>bip-44 path</small>
+							<small>of bip-44 path</small>
 							<input
-								type="text"
-								data-id="wallet-account"
-								placeholder="ex: m/44'/5'/0'"
-								disabled
+								name="walletAccount"
+								type="number"
+								min="0"
+								step="1"
+								max="2147483647"
+								value="0"
+								placeholder="ex: 0"
 							/>
 						</label>
-
-						<label
-							>Address for WIF Export
-							<small>base58check-encoded pkh</small>
-							<input
-								type="text"
-								name="exportAddress"
-								placeholder="ex: ybLxVb3aspSHFgxM1qTyuBSXnjAqLFEG8P"
-							/>
-						</label>
-						<pre><code data-id="export-wif"><em>output: private key as wif</em></code></pre>
-						<button type="submit" onclick="App.$exportWif(event)">
-							Export WIF
-						</button>
+						<input
+							disabled
+							type="text"
+							data-id="wallet-path"
+							placeholder="ex: m/44'/5'/0'"
+						/>
+						<button>Update</button>
+						<small data-id="wallet-status">&nbsp;</small>
 					</form>
 				</section>
 			</div>

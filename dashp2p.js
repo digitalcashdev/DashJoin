@@ -104,25 +104,34 @@ var DashP2P = ("object" === typeof module && exports) || {};
 			};
 
 			p2p.close = function () {
-				try {
-					wsc.close();
-				} catch (e) {
-					console.error("error closing websocket:", e);
+				if (wsc.readyState !== WebSocket.CLOSED) {
+					try {
+						wsc.close();
+					} catch (e) {
+						console.error("[dashp2p] error closing websocket:", e);
+					}
 				}
 				p2p._close(true);
 			};
 
-			wsc.addEventListener("message", async function (wsevent) {
-				let ab = await wsevent.data.arrayBuffer();
-				let bytes = new Uint8Array(ab);
-				console.log(
-					`%c ws.onmessage => p2p.processBytes(bytes) [${bytes.length}]`,
-					`color: #bada55`,
-				);
-				p2p.processBytes(bytes);
+			let promise = {
+				/** @param {any} data */
+				_resolve: function (data) {},
+				/** @param {Error} err */
+				_reject: function (err) {},
+				_promise: Promise.resolve(),
+			};
+			promise._promise = new Promise(function (resolve, reject) {
+				promise._resolve = resolve;
+				promise._reject = reject;
+			});
+			wsc.addEventListener("error", function () {
+				console.error(`DEBUG dashp2p wsc error`);
+				let err = new Error(`[dashp2p] websocket connection failed`);
+				promise._reject(err);
 			});
 
-			wsc.addEventListener("open", async function () {
+			wsc.addEventListener("open", function () {
 				{
 					let versionBytes = DashP2P.packers.version({
 						network: network,
@@ -141,11 +150,23 @@ var DashP2P = ("object" === typeof module && exports) || {};
 				}
 			});
 
+			wsc.addEventListener("message", async function (wsevent) {
+				promise._resolve(null);
+				let ab = await wsevent.data.arrayBuffer();
+				let bytes = new Uint8Array(ab);
+				console.log(
+					`%c ws.onmessage => p2p.processBytes(bytes) [${bytes.length}]`,
+					`color: #bada55`,
+				);
+				p2p.processBytes(bytes);
+			});
+
 			wsc.addEventListener("close", p2p.close);
 
 			let evstream = p2p.createSubscriber(["version", "verack", "ping"]);
 			console.log("%c subscribed", "color: red");
 
+			await promise._promise;
 			void (await evstream.once("version"));
 			console.log("%c[[version]] PROCESSED", "color: red");
 			// void (await evstream.once('verack'));
