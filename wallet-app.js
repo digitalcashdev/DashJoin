@@ -32,6 +32,10 @@
 	//@ts-expect-error
 	window.App = App;
 
+	let P2P = {};
+	//@ts-expect-error
+	window.P2P = P2P;
+
 	const SATS = 100000000;
 	const MIN_BALANCE = 100001 * 1000;
 
@@ -879,10 +883,10 @@
 		console.log(networkInfo._rawmnlist);
 		// 35.166.18.166:19999
 		let index = 5;
-		// let index = Math.floor(Math.random() * App._evonodes.length);
-		// App._evonode = App._evonodes[index];
+		// let index = Math.floor(Math.random() * networkInfo._evonodes.length);
+		// networkInfo._evonode = networkInfo._evonodes[index];
 		networkInfo._evonode = networkInfo._evonodes.at(index);
-		// App._evonode = {
+		// networkInfo._evonode = {
 		// 	host: '35.166.18.166:19999',
 		// 	hostname: '35.166.18.166',
 		// 	port: '19999',
@@ -890,10 +894,54 @@
 		console.info("[info] chosen evonode:", index);
 		console.log(JSON.stringify(networkInfo._evonode, null, 2));
 
-		void (await connectToPeer(
+		void (await P2P.connectToPeer(
 			networkInfo._evonode,
 			networkInfo._chaininfo.blocks,
 		));
+		App._$renderPoolInfo();
+	};
+
+	App._$renderPoolInfo = function () {
+		let d = new Date();
+		let today = d.toLocaleDateString();
+
+		let template = $(`[data-id="connection-row-template"]`).content;
+		let tableBody = $(`[data-id="connections-table-body"]`);
+
+		let $rows = document.createDocumentFragment();
+		let networks = [App.mainnet, App.testnet];
+		for (let networkInfo of networks) {
+			let hosts = Object.keys(networkInfo.peers);
+			for (let host of hosts) {
+				let connInfo = networkInfo.peers[host];
+				let hostInfo = networkInfo.peers[host].node;
+				let day = connInfo.connectedAt.toLocaleDateString();
+				let time = connInfo.connectedAt.toLocaleTimeString();
+				let connectedAt = time;
+				// TODO XXX
+				if (true || day !== today) {
+					connectedAt = day;
+				}
+
+				let $row = document.importNode(template, true);
+				$row.querySelector(`[data-name="network"]`).textContent =
+					networkInfo.network;
+				$row.querySelector(`[data-name="hostname"]`).textContent =
+					hostInfo.hostname;
+				$row.querySelector(`[data-name="port"]`).textContent = hostInfo.port;
+				$row.querySelector(`[data-name="type"]`).textContent = hostInfo.type;
+				$row.querySelector(`[data-name="connected-at"]`).textContent =
+					connectedAt;
+				// TODO XXX
+				$row.querySelector(`[data-name="last-message-at"]`).textContent = time;
+
+				$rows.appendChild($row);
+			}
+		}
+
+		requestAnimationFrame(function () {
+			tableBody.replaceChildren($rows);
+		});
 	};
 
 	async function addKey(walletId, accountIndex, key, usage, i) {
@@ -1377,7 +1425,7 @@
 		return f.toFixed(d);
 	}
 
-	async function connectToPeer(evonode, height) {
+	P2P.connectToPeer = async function (evonode, height) {
 		let networkInfo = App.mainnet;
 		if (App.network !== MAINNET) {
 			networkInfo = App.testnet;
@@ -1412,10 +1460,11 @@
 		} catch (e) {
 			console.error(`DEBUG WS error`, e);
 			console.error(e);
+			throw e;
 		}
 
 		await p2p.initWebSocket(wsc, {
-			network: App.network,
+			network: networkInfo.network,
 			hostname: evonode.hostname,
 			port: evonode.port,
 			start_height: height,
@@ -1464,9 +1513,13 @@
 		}
 		wsc.addEventListener("error", cleanup);
 
-		networkInfo.peers[evonode.host] = p2p;
+		networkInfo.peers[evonode.host] = {
+			connection: p2p,
+			connectedAt: new Date(),
+			node: evonode,
+		};
 		return networkInfo.peers[evonode.host];
-	}
+	};
 	// TODO close all peers
 
 	// 0. 'dsq' broadcast puts a node in the local in-memory pool
@@ -1479,7 +1532,6 @@
 	// 6. 'dssu' updates status
 	//      + 'dsc' confirms the tx will broadcast soon
 	async function createCoinJoinSession(
-		evonode, // { host }
 		inputs, // [{address, txid, pubKeyHash, ...getPrivateKeyInfo }]
 		outputs, // [{ pubKeyHash, satoshis }]
 		collateralTxes, // (for dsa and dsi) any 2 txes having fees >=0.00010000 more than necessary
@@ -1489,9 +1541,10 @@
 			networkInfo = App.testnet;
 		}
 
-		let p2p = networkInfo.peers[evonode.host];
+		// TODO lookup pool info to determine a cj node to engage with
+		let p2p = networkInfo.peers[networkInfo._evonode.host];
 		if (!p2p) {
-			throw new Error(`'${evonode.host}' is not connected`);
+			throw new Error(`'${networkInfo._evonode.host}' is not connected`);
 		}
 
 		let denomination = inputs[0].satoshis;
@@ -1720,7 +1773,6 @@
 		];
 
 		await createCoinJoinSession(
-			App._evonode,
 			inputs, // [{address, txid, pubKeyHash, ...getPrivateKeyInfo }]
 			outputs, // [{ pubKeyHash, satoshis }]
 			collateralTxes, // any tx with fee >= 0.00010000
