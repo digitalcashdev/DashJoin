@@ -898,15 +898,45 @@
 			networkInfo._evonode,
 			networkInfo._chaininfo.blocks,
 		));
-		App._$renderPoolInfo();
+
+		void App._$renderPoolInfo();
 	};
 
 	App._$renderPoolInfo = function () {
+		let stats = {
+			1000010000: {
+				mainnetCount: 0,
+				testnetCount: 0,
+				latestAt: new Date(0),
+			},
+			100001000: {
+				mainnetCount: 0,
+				testnetCount: 0,
+				latestAt: new Date(0),
+			},
+			10000100: {
+				mainnetCount: 0,
+				testnetCount: 0,
+				latestAt: new Date(0),
+			},
+			1000010: {
+				mainnetCount: 0,
+				testnetCount: 0,
+				latestAt: new Date(0),
+			},
+			100001: {
+				mainnetCount: 0,
+				testnetCount: 0,
+				latestAt: new Date(0),
+			},
+		};
+
 		let d = new Date();
 		let today = d.toLocaleDateString();
 
 		let template = $(`[data-id="connection-row-template"]`).content;
 		let tableBody = $(`[data-id="connections-table-body"]`);
+		let $denomsTable = $(`[data-id="denominations-table-body"]`);
 
 		let $rows = document.createDocumentFragment();
 		let networks = [App.mainnet, App.testnet];
@@ -937,9 +967,47 @@
 
 				$rows.appendChild($row);
 			}
+
+			for (let denom of DashJoin.DENOMS) {
+				let stat = stats[denom];
+				let cjQueue = networkInfo.coinjoinQueues[denom];
+				let hosts = Object.values(cjQueue);
+				if (networkInfo.network === "mainnet") {
+					stat.mainnetCount = hosts.length;
+				} else {
+					stat.testnetCount = hosts.length;
+				}
+
+				for (let dsqStatus of hosts) {
+					let statTs = stat.latestAt.valueOf();
+					let dsqTs = Date.parse(dsqStatus.timestamp);
+					console.log(`DEBUG stat, dsq`, stat, dsqStatus);
+					if (dsqTs > statTs) {
+						stat.latestAt = new Date(dsqStatus.timestamp);
+					}
+				}
+			}
 		}
 
 		requestAnimationFrame(function () {
+			for (let denom of DashJoin.DENOMS) {
+				let stat = stats[denom];
+				let $denomRow = $denomsTable.querySelector(
+					`[data-id="denom-${denom}"]`,
+				);
+				$denomRow.querySelector(`[data-name="mainnet-pools"]`).textContent =
+					stat.mainnetCount;
+				$denomRow.querySelector(`[data-name="testnet-pools"]`).textContent =
+					stat.testnetCount;
+
+				let latestAt = stat.latestAt.valueOf();
+				if (latestAt) {
+					$denomRow.querySelector(
+						`[data-name="latest-message-at"]`,
+					).textContent = stat.latestAt.toLocaleTimeString();
+				}
+			}
+
 			tableBody.replaceChildren($rows);
 		});
 	};
@@ -1498,6 +1566,10 @@
 				dsqStatus.ready,
 				dsqStatus.host,
 			);
+
+			networkInfo.peers[evonode.host].latestAt = new Date();
+
+			void App._$renderPoolInfo();
 		});
 
 		/**
@@ -1513,9 +1585,11 @@
 		}
 		wsc.addEventListener("error", cleanup);
 
+		let d = new Date();
 		networkInfo.peers[evonode.host] = {
 			connection: p2p,
-			connectedAt: new Date(),
+			connectedAt: d,
+			latestAt: d,
 			node: evonode,
 		};
 		return networkInfo.peers[evonode.host];
