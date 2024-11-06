@@ -981,7 +981,6 @@
 				for (let dsqStatus of hosts) {
 					let statTs = stat.latestAt.valueOf();
 					let dsqTs = Date.parse(dsqStatus.timestamp);
-					console.log(`DEBUG stat, dsq`, stat, dsqStatus);
 					if (dsqTs > statTs) {
 						stat.latestAt = new Date(dsqStatus.timestamp);
 					}
