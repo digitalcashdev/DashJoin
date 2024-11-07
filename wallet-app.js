@@ -4,12 +4,34 @@
 	//@ts-expect-error
 	let QRCode = window.QRCode;
 
+	/**
+	 * @param {String} sel
+	 * @param {HTMLElement | DocumentFragment} [el]
+	 * @return {HTMLElement & HTMLInputElement & HTMLAnchorElement & HTMLTemplateElement}
+	 */
 	function $(sel, el) {
-		return (el || document).querySelector(sel);
+		let $el = (el || document).querySelector(sel);
+		if (!$el) {
+			throw new Error(`selector '${sel}' selected no element`);
+		}
+
+		//@ts-expect-error
+		return $el;
 	}
 
+	/**
+	 * @param {String} sel
+	 * @param {HTMLElement} [el]
+	 * @return {Array<HTMLElement & HTMLInputElement & HTMLAnchorElement & HTMLTemplateElement>}
+	 */
 	function $$(sel, el) {
-		return Array.from((el || document).querySelectorAll(sel));
+		let $els = Array.from((el || document).querySelectorAll(sel));
+		if ($els.length === 0) {
+			throw new Error(`selector '${sel}' selected no elements`);
+		}
+
+		//@ts-expect-error
+		return $els;
 	}
 
 	//@ts-expect-error
@@ -82,10 +104,24 @@
 	let spendableAddrs = [];
 	/** @type {Object.<String, AddressActivity>} */
 	let deltasMap = {};
+	/** @type {Object.<String, KeyInfo>} */
 	let keysMap = {};
 	/** @type {Object.<Number, Object.<String, CoinInfo>>} */
 	let denomsMap = {};
 
+	/**
+	 * @typedef KeyInfo
+	 * @prop {String} walletId
+	 * @prop {Number} i
+	 * @prop {String} hdpath
+	 * @prop {String} address
+	 * @prop {String} wif
+	 * @prop {import('dashhd').HDKey} key
+	 * @prop {Hex} publicKey
+	 * @prop {Hex} pubKeyHash
+	 */
+
+	/** @type {Object.<Number, NodeStat>} */
 	let emptyCoinjoinQueues = {
 		100001: {}, //      0.00100001
 		1000010: {}, //     0.01000010
@@ -93,34 +129,61 @@
 		100001000: {}, //   1.00001000
 		1000010000: {}, // 10.00010000
 	};
+
+	/**
+	 * @typedef ChainInfo
+	 * @prop {Number} blocks
+	 */
+
+	/**
+	 * @typedef NetworkInfo
+	 * @prop {String} network
+	 * @prop {Number} maxConns
+	 * @prop {Boolean} initialized
+	 * @prop {Object.<Number, NodeStat>} coinjoinQueues
+	 * @prop {Array<MasternodeShort>} _rawmnlist
+	 * @prop {ChainInfo} _chaininfo
+	 * @prop {Array<MasternodeShort>} _evonodes
+	 * @prop {Object.<String, ReturnType<typeof DashP2P.create>>} peers
+	 */
+
+	/** @type {NetworkInfo} */
 	App.mainnet = {
 		network: "mainnet",
+		maxConns: 3,
 		initialized: false,
 		coinjoinQueues: globalThis.structuredClone(emptyCoinjoinQueues),
 		_rawmnlist: [],
 		_chaininfo: {
 			blocks: 0, // height
 		},
+		/** @type {Array<MasternodeShort>} */
 		_evonodes: [],
-		_evonode: {}, // TODO
 		/** @type {Object.<String, ReturnType<typeof DashP2P.create>>} */
 		peers: {},
 	};
+
+	/** @type {NetworkInfo} */
 	App.testnet = {
 		network: "testnet",
+		maxConns: 3,
 		initialized: false,
 		coinjoinQueues: globalThis.structuredClone(emptyCoinjoinQueues),
 		_rawmnlist: [],
 		_chaininfo: {
 			blocks: 0, // height
 		},
+		/** @type {Array<MasternodeShort>} */
 		_evonodes: [],
-		_evonode: {}, // TODO
 		/** @type {Object.<String, ReturnType<typeof DashP2P.create>>} */
 		peers: {},
 	};
 
 	let keyUtils = {
+		/**
+		 * @param {Partial<import('dashtx').TxInputForSig>} txInput
+		 * @param {Number} [i]
+		 */
 		getPrivateKey: async function (txInput, i) {
 			// let address;
 			let address = txInput.address;
@@ -138,6 +201,10 @@
 			return privKeyBytes;
 		},
 
+		/**
+		 * @param {Partial<import('dashtx').TxInputForSig>} txInput
+		 * @param {Number} [i]
+		 */
 		getPublicKey: async function (txInput, i) {
 			let privKeyBytes = await keyUtils.getPrivateKey(txInput, i);
 			let pubKeyBytes = await keyUtils.toPublicKey(privKeyBytes);
@@ -147,6 +214,10 @@
 		// TODO
 		// toPkh: DashKeys.pubkeyToPkh,
 
+		/**
+		 * @param {Uint8Array} privKeyBytes
+		 * @param {Uint8Array} txHashBytes
+		 */
 		sign: async function (privKeyBytes, txHashBytes) {
 			let sigOpts = { canonical: true, extraEntropy: true };
 			let sigBytes = await Secp256k1.sign(txHashBytes, privKeyBytes, sigOpts);
@@ -154,6 +225,9 @@
 			return sigBytes;
 		},
 
+		/**
+		 * @param {Uint8Array} privKeyBytes
+		 */
 		toPublicKey: async function (privKeyBytes) {
 			let isCompressed = true;
 			let pubKeyBytes = Secp256k1.getPublicKey(privKeyBytes, isCompressed);
@@ -164,6 +238,10 @@
 	let dashTx = DashTx.create(keyUtils);
 	console.log("DEBUG dashTx instance", dashTx);
 
+	/**
+	 * @param {String} key
+	 * @param {any?} [defVal]
+	 */
 	function dbGet(key, defVal) {
 		let dataJson = localStorage.getItem(key);
 		if (!dataJson) {
@@ -179,6 +257,10 @@
 		return data;
 	}
 
+	/**
+	 * @param {String} key
+	 * @param {any} val
+	 */
 	function dbSet(key, val) {
 		if (val === null) {
 			localStorage.removeItem(key);
@@ -189,6 +271,10 @@
 		localStorage.setItem(key, dataJson);
 	}
 
+	/**
+	 * @param {Object} [opts]
+	 * @param {Boolean} [opts.denom]
+	 */
 	function getAllUtxos(opts) {
 		let utxos = [];
 		let spendableAddrs = Object.keys(deltasMap);
@@ -224,6 +310,11 @@
 		return utxos;
 	}
 
+	/**
+	 * @template T
+	 * @param {Array<T>} arr
+	 * @param {T} val
+	 */
 	function removeElement(arr, val) {
 		let index = arr.indexOf(val);
 		if (index !== -1) {
@@ -245,13 +336,24 @@
 		return result;
 	};
 
-	/**
-	 * @param {"mainnet"|"testnet"|String} _network
-	 */
+	/** @param {"mainnet"|"testnet"|String} network */
 	App.$setNetwork = async function (network) {
 		await dbSet("network", network);
-		await App.$init(network);
 
+		await App.$init(network);
+		await App.initP2p();
+	};
+
+	/** @param {String} maxConnStr */
+	App.$setMaxConn = async function (maxConnStr) {
+		let maxConn = parseInt(maxConnStr, 10);
+
+		await dbSet(`max-connections`, maxConn);
+		await dbSet(`testnet-max-connections`, maxConn);
+
+		await dbSet("network", App.network);
+
+		await App.$init(App.network);
 		await App.initP2p();
 	};
 
@@ -348,7 +450,7 @@
 
 		$('[name="walletPhrase"]').value = phrase;
 		$('[name="walletSeed"]').value = seedHex;
-		$('[name="walletAccount"]').value = accountIndex;
+		$('[name="walletAccount"]').value = accountIndex.toString();
 		$("[data-id=wallet-path]").value =
 			`m/44'/${App.coinType}'/${accountIndex}'`;
 
@@ -357,6 +459,11 @@
 		// $('[name="phraseSalt"]').type = "password"; // delayed to avoid pw prompt
 	};
 
+	/**
+	 * @param {String} phrase
+	 * @param {String} salt
+	 * @param {Number} accountIndex
+	 */
 	App._walletDerive = async function (phrase, salt, accountIndex) {
 		// reset all key & address state
 		addresses = [];
@@ -419,6 +526,9 @@
 		renderCoins();
 	};
 
+	/**
+	 * @param {import('dashtx').TxSummary} signedTx
+	 */
 	App._$commitWalletTx = async function (signedTx) {
 		let txid = await App.rpc("sendrawtransaction", signedTx.transaction);
 
@@ -456,6 +566,9 @@
 		return true;
 	};
 
+	/**
+	 * @param {Event} event
+	 */
 	App.setMax = function (event) {
 		let totalSats = 0;
 		let addrs = Object.keys(deltasMap);
@@ -481,13 +594,16 @@
 
 		$("[data-id=send-amount]").value = toFixed(totalAmount, 4);
 		//$('[data-id=send-dust]').value = dust;
-		$("[data-id=send-dust]").textContent = dust;
+		$("[data-id=send-dust]").textContent = dust.toString();
 	};
 
+	/**
+	 * @param {Event} event
+	 */
 	App.sendDash = async function (event) {
 		event.preventDefault();
 
-		let amountStr = $("[data-id=send-amount]").value || 0;
+		let amountStr = $("[data-id=send-amount]").value || "0";
 		let amount = parseFloat(amountStr);
 		let satoshis = Math.round(amount * SATS);
 		// if (satoshis === 0) {
@@ -503,9 +619,9 @@
 
 		let balance = 0;
 
-		/** @type {Array<DashTx.TxInput>?} */
+		/** @type {Array<import('dashtx').TxInput>?} */
 		let inputs = null;
-		/** @type {Array<DashTx.TxInput>?} */
+		/** @type {Array<import('dashtx').TxInput>?} */
 		let utxos = null;
 
 		let $coins = $$("[data-name=coin]:checked");
@@ -542,6 +658,12 @@
 		console.log("DEBUG Available balance:", balance);
 		console.log("DEBUG Amount:", amount);
 
+		if (!utxos) {
+			throw new Error(`type fail: utxos not set`);
+		}
+		if (!inputs) {
+			throw new Error(`type fail: inputs not set`);
+		}
 		let output = { satoshis, address };
 		let draft = await draftWalletTx(utxos, inputs, output);
 
@@ -680,6 +802,11 @@
 		return signedTxBytes;
 	};
 
+	/**
+	 * @param {Array<import('dashtx').TxInput>?} utxos
+	 * @param {Array<import('dashtx').TxInput>} inputs
+	 * @param {import('dashtx').TxOutput} output
+	 */
 	async function draftWalletTx(utxos, inputs, output) {
 		let draftTx = dashTx.legacy.draftSingleOutput({ utxos, inputs, output });
 		console.log("DEBUG draftTx", draftTx);
@@ -732,9 +859,13 @@
 		};
 	}
 
+	/** @param {import('dashtx').TxSummary} signedTx */
 	async function commitWalletTx(signedTx) {
 		let updatedAddrs = [];
 		for (let input of signedTx.inputs) {
+			if (!input.address) {
+				throw new Error(`developer error: no input.address`);
+			}
 			updatedAddrs.push(input.address);
 			let knownSpent = spentAddrs.includes(input.address);
 			if (!knownSpent) {
@@ -747,6 +878,10 @@
 			dbSet(input.address, null);
 		}
 		for (let output of signedTx.outputs) {
+			if (!output.address) {
+				throw new Error(`developer error: no output.address`);
+			}
+
 			let isMemo = !output.address;
 			if (isMemo) {
 				continue;
@@ -755,6 +890,7 @@
 			removeElement(addresses, output.address);
 			removeElement(receiveAddrs, output.address);
 			removeElement(changeAddrs, output.address);
+
 			delete deltasMap[output.address];
 			dbSet(output.address, null);
 		}
@@ -763,7 +899,7 @@
 		let txid = await DashTx.getId(signedTx.transaction);
 		let now = Date.now();
 		for (let input of signedTx.inputs) {
-			let coin = selectCoin(input.address, input.txid, input.outputIndex);
+			let coin = selectCoin(input.address || "", input.txid, input.outputIndex);
 			if (!coin) {
 				continue;
 			}
@@ -771,6 +907,10 @@
 		}
 		for (let i = 0; i < signedTx.outputs.length; i += 1) {
 			let output = signedTx.outputs[i];
+			if (!output.address) {
+				throw new Error(`developer error: no output.address`);
+			}
+
 			let info = deltasMap[output.address];
 			if (!info) {
 				info = { balance: 0, deltas: [] };
@@ -790,12 +930,17 @@
 	}
 
 	function renderAddresses() {
-		$("[data-id=spent-count]").textContent = spentAddrs.length;
+		$("[data-id=spent-count]").textContent = spentAddrs.length.toString();
 		$("[data-id=spent]").textContent = spentAddrs.join("\n");
 		$("[data-id=receive-addresses]").textContent = receiveAddrs.join("\n");
 		$("[data-id=change-addresses]").textContent = changeAddrs.join("\n");
 	}
 
+	/**
+	 * @param {String} address
+	 * @param {String} txid
+	 * @param {Number} index
+	 */
 	function selectCoin(address, txid, index) {
 		let info = deltasMap[address];
 		if (!info) {
@@ -837,6 +982,11 @@
 
 		denomsMap = {};
 
+		App.mainnet.maxConns = dbGet(`max-connections`, App.mainnet.maxConns);
+		App.testnet.maxConns = dbGet(
+			`testnet-max-connections`,
+			App.testnet.maxConns,
+		);
 		let phrases = dbGet(`${App.dbPrefix}wallet-phrases`, []);
 		let primaryPhrase = phrases[0];
 		if (!primaryPhrase) {
@@ -880,58 +1030,87 @@
 			networkInfo.initialized = true;
 		}
 
-		console.log(networkInfo._rawmnlist);
-		// 35.166.18.166:19999
-		let index = 5;
-		// let index = Math.floor(Math.random() * networkInfo._evonodes.length);
-		// networkInfo._evonode = networkInfo._evonodes[index];
-		networkInfo._evonode = networkInfo._evonodes.at(index);
-		// networkInfo._evonode = {
-		// 	host: '35.166.18.166:19999',
-		// 	hostname: '35.166.18.166',
-		// 	port: '19999',
-		// };
-		console.info("[info] chosen evonode:", index);
-		console.log(JSON.stringify(networkInfo._evonode, null, 2));
+		console.log(`DEBUG evonodes (raw, as map)`, networkInfo._rawmnlist);
 
-		void (await P2P.connectToPeer(
-			networkInfo._evonode,
-			networkInfo._chaininfo.blocks,
-		));
+		for (;;) {
+			let hostnames = Object.keys(networkInfo.peers);
+			if (hostnames.length >= networkInfo.maxConns) {
+				break;
+			}
+
+			let rnd = Math.random();
+			let index = Math.floor(rnd * networkInfo._evonodes.length);
+			let evonode = networkInfo._evonodes[index];
+			// { host, hostname, port }
+
+			// networkInfo.peers[evonode.host].connection.close();
+
+			console.info("[info] chosen evonode:", evonode.host);
+			void (await P2P.connectToPeer(
+				evonode,
+				networkInfo._chaininfo.blocks,
+			).catch(onConnError));
+		}
+
+		for (;;) {
+			let hostnames = Object.keys(networkInfo.peers);
+			if (hostnames.length <= networkInfo.maxConns) {
+				break;
+			}
+
+			let hostname = hostnames.shift() || "";
+			let host = networkInfo.peers[hostname];
+			console.log(
+				`DEBUG host '${hostname}' '${hostnames}'`,
+				host,
+				networkInfo.peers,
+			);
+			delete networkInfo.peers[hostname];
+			host.connection?.close();
+		}
 
 		void App._$renderPoolInfo();
 	};
 
+	/** @param {Error} err */
+	function onConnError(err) {
+		console.error(`[onConnError]`, err);
+	}
+
 	App._$renderPoolInfo = function () {
-		let stats = {
-			1000010000: {
-				mainnetCount: 0,
-				testnetCount: 0,
-				latestAt: new Date(0),
+		/**
+		 * @typedef QueueStat
+		 * @prop {Number} count
+		 * @prop {Number} delay
+		 * @prop {Number} at
+		 */
+
+		/**
+		 * @typedef QueueStats
+		 * @prop {Object.<Number, QueueStat>} mainnet
+		 * @prop {Object.<Number, QueueStat>} testnet
+		 */
+
+		/** @type {QueueStats} */
+		let queueStats = {
+			mainnet: {
+				1000010000: { count: 0, delay: 0, at: 0 },
+				100001000: { count: 0, delay: 0, at: 0 },
+				10000100: { count: 0, delay: 0, at: 0 },
+				1000010: { count: 0, delay: 0, at: 0 },
+				100001: { count: 0, delay: 0, at: 0 },
 			},
-			100001000: {
-				mainnetCount: 0,
-				testnetCount: 0,
-				latestAt: new Date(0),
-			},
-			10000100: {
-				mainnetCount: 0,
-				testnetCount: 0,
-				latestAt: new Date(0),
-			},
-			1000010: {
-				mainnetCount: 0,
-				testnetCount: 0,
-				latestAt: new Date(0),
-			},
-			100001: {
-				mainnetCount: 0,
-				testnetCount: 0,
-				latestAt: new Date(0),
+			testnet: {
+				1000010000: { count: 0, delay: 0, at: 0 },
+				100001000: { count: 0, delay: 0, at: 0 },
+				10000100: { count: 0, delay: 0, at: 0 },
+				1000010: { count: 0, delay: 0, at: 0 },
+				100001: { count: 0, delay: 0, at: 0 },
 			},
 		};
 
 		let d = new Date();
+		let now = d.valueOf();
 		let today = d.toLocaleDateString();
 
 		let template = $(`[data-id="connection-row-template"]`).content;
@@ -941,69 +1120,100 @@
 		let $rows = document.createDocumentFragment();
 		let networks = [App.mainnet, App.testnet];
 		for (let networkInfo of networks) {
+			let stats = queueStats.mainnet;
+			if (networkInfo.network !== "mainnet") {
+				stats = queueStats.testnet;
+			}
+
+			for (let denom of DashJoin.DENOMS) {
+				let stat = stats[denom];
+				stat.count = 0;
+
+				let cjQueue = networkInfo.coinjoinQueues[denom];
+
+				let queues = Object.values(cjQueue);
+				for (let dsqStatus of queues) {
+					let isTooLate = dsqStatus.ready;
+					if (isTooLate) {
+						continue;
+					}
+
+					if (dsqStatus._prevMs) {
+						let delay = dsqStatus._ms - dsqStatus._prevMs;
+						delay = delay / 1000;
+						delay = Math.round(delay);
+						stat.delay = delay;
+					}
+					stat.at = dsqStatus._ms;
+					console.log(`[DEBUG] ms`, stat.at);
+
+					let staleTime = 15000; // TODO what's a good number for this?
+					let age = now - stat.at;
+					if (age > staleTime) {
+						continue;
+					}
+
+					stat.count += 1;
+				}
+			}
+
 			let hosts = Object.keys(networkInfo.peers);
 			for (let host of hosts) {
+				let $row = document.importNode(template, true);
+
 				let connInfo = networkInfo.peers[host];
 				let hostInfo = networkInfo.peers[host].node;
 				let day = connInfo.connectedAt.toLocaleDateString();
 				let time = connInfo.connectedAt.toLocaleTimeString();
 				let connectedAt = time;
-				// TODO XXX
-				if (true || day !== today) {
+				if (day !== today) {
 					connectedAt = day;
 				}
+				$(`[data-name="network"]`, $row).textContent = networkInfo.network;
+				$(`[data-name="hostname"]`, $row).textContent = hostInfo.hostname;
+				$(`[data-name="port"]`, $row).textContent = hostInfo.port;
+				$(`[data-name="type"]`, $row).textContent = hostInfo.type;
+				$(`[data-name="connected-at"]`, $row).textContent = connectedAt;
 
-				let $row = document.importNode(template, true);
-				$row.querySelector(`[data-name="network"]`).textContent =
-					networkInfo.network;
-				$row.querySelector(`[data-name="hostname"]`).textContent =
-					hostInfo.hostname;
-				$row.querySelector(`[data-name="port"]`).textContent = hostInfo.port;
-				$row.querySelector(`[data-name="type"]`).textContent = hostInfo.type;
-				$row.querySelector(`[data-name="connected-at"]`).textContent =
-					connectedAt;
-				// TODO XXX
-				$row.querySelector(`[data-name="last-message-at"]`).textContent = time;
+				let latestTime = connInfo.latestAt.toLocaleTimeString();
+				$(`[data-name="last-message-at"]`, $row).textContent = latestTime;
 
 				$rows.appendChild($row);
-			}
-
-			for (let denom of DashJoin.DENOMS) {
-				let stat = stats[denom];
-				let cjQueue = networkInfo.coinjoinQueues[denom];
-				let hosts = Object.values(cjQueue);
-				if (networkInfo.network === "mainnet") {
-					stat.mainnetCount = hosts.length;
-				} else {
-					stat.testnetCount = hosts.length;
-				}
-
-				for (let dsqStatus of hosts) {
-					let statTs = stat.latestAt.valueOf();
-					let dsqTs = Date.parse(dsqStatus.timestamp);
-					if (dsqTs > statTs) {
-						stat.latestAt = new Date(dsqStatus.timestamp);
-					}
-				}
 			}
 		}
 
 		requestAnimationFrame(function () {
-			for (let denom of DashJoin.DENOMS) {
-				let stat = stats[denom];
-				let $denomRow = $denomsTable.querySelector(
-					`[data-id="denom-${denom}"]`,
-				);
-				$denomRow.querySelector(`[data-name="mainnet-pools"]`).textContent =
-					stat.mainnetCount;
-				$denomRow.querySelector(`[data-name="testnet-pools"]`).textContent =
-					stat.testnetCount;
+			$renderNodesList(`[data-id="mainnet-nodes"]`, App.mainnet._evonodes);
+			$renderNodesList(`[data-id="testnet-nodes"]`, App.testnet._evonodes);
 
-				let latestAt = stat.latestAt.valueOf();
-				if (latestAt) {
-					$denomRow.querySelector(
-						`[data-name="latest-message-at"]`,
-					).textContent = stat.latestAt.toLocaleTimeString();
+			for (let _denom of DashJoin.DENOMS) {
+				let denom = _denom.toString();
+				let $denomRow = $(`[data-id="denom-${denom}"]`, $denomsTable);
+
+				let mainnetStat = queueStats.mainnet[denom];
+				$(`[data-name="mainnet-pools"]`, $denomRow).textContent =
+					mainnetStat.count;
+				if (mainnetStat.delay) {
+					$(`[data-name="mainnet-delay"]`, $denomRow).textContent =
+						`${mainnetStat.delay}s`;
+				}
+				if (mainnetStat.at) {
+					let latestDate = new Date(mainnetStat.at);
+					$(`[data-name="mainnet-at"]`, $denomRow).textContent =
+						latestDate.toLocaleTimeString();
+				}
+
+				let testnetStat = queueStats.testnet[denom];
+				$(`[data-name="testnet-pools"]`, $denomRow).textContent =
+					testnetStat.count;
+				if (testnetStat.delay) {
+					$(`[data-name="testnet-delay"]`, $denomRow).textContent =
+						`${testnetStat.delay}s`;
+				}
+				if (testnetStat.at) {
+					let latestDate = new Date(mainnetStat.at);
+					$(`[data-name="testnet-at"]`, $denomRow).textContent =
+						latestDate.toLocaleTimeString();
 				}
 			}
 
@@ -1011,6 +1221,35 @@
 		});
 	};
 
+	/**
+	 * @param {String} sel
+	 * @param {Array<MasternodeShort>} nodes
+	 */
+	function $renderNodesList(sel, nodes) {
+		let oldList = $(sel).textContent;
+
+		let rows = [];
+		for (let node of nodes) {
+			// console.log(`DEBUG mnshort`, node);
+			// '107.170.254.160:9999'.length
+			let host = node.host.padStart(20, " ");
+			let line = `${host} ${node.type}`;
+			rows.push(line);
+		}
+
+		let list = rows.join("\n");
+		if (list !== oldList) {
+			$(sel).textContent = list;
+		}
+	}
+
+	/**
+	 * @param {String} walletId
+	 * @param {Number} accountIndex
+	 * @param {import('dashhd').HDKey} key
+	 * @param {Number} usage
+	 * @param {Number} i
+	 */
 	async function addKey(walletId, accountIndex, key, usage, i) {
 		let wif = await DashHd.toWif(key.privateKey, { version: App.network });
 		let address = await DashHd.toAddr(key.publicKey, {
@@ -1047,6 +1286,18 @@
 		};
 	}
 
+	/**
+	 * @typedef CJSlot
+	 * @prop {Number} denom
+	 * @prop {Number} priority
+	 * @prop {Number} have
+	 * @prop {Number} want
+	 * @prop {Number} need
+	 */
+
+	/**
+	 * @type {Array<CJSlot>}
+	 */
 	let defaultCjSlots = [
 		{
 			denom: 1000010000,
@@ -1100,7 +1351,8 @@
 		}
 		return slots;
 	}
-	App.syncCashDrawer = function (event) {
+
+	App.syncCashDrawer = function () {
 		let isDirty = false;
 
 		let slots = getCashDrawer();
@@ -1168,7 +1420,7 @@
 				}
 			}
 
-			$("[data-name=have]", $row).textContent = have;
+			$("[data-name=have]", $row).textContent = have.toString();
 			$("[data-name=need]", $row).textContent = slot.need;
 
 			for (let addr of addrs) {
@@ -1180,6 +1432,9 @@
 		$("[data-id=cj-balance]").textContent = toFixed(cjAmount, 8);
 	}
 
+	/**
+	 * @param {Event} event
+	 */
 	App.denominateCoins = async function (event) {
 		event.preventDefault();
 
@@ -1247,6 +1502,10 @@
 		}
 	};
 
+	/**
+	 * @param {Array<CJSlot>} slots
+	 * @param {CJSlot} slot
+	 */
 	function createRoundRobin(slots, slot) {
 		return function () {
 			if (slot.need >= 1) {
@@ -1256,6 +1515,10 @@
 		};
 	}
 
+	/**
+	 * @param {Array<import('dashtx').TxInput>} inputs
+	 * @param {import('dashtx').TxOutput} output
+	 */
 	async function confirmAndBroadcastAndCompleteTx(inputs, output) {
 		let utxos = null;
 		let draft = await draftWalletTx(utxos, inputs, output);
@@ -1276,7 +1539,11 @@
 		void (await App._$commitWalletTx(signedTx));
 	}
 
+	/**
+	 * @param {Array<CJSlot>} slots
+	 */
 	function groupSlotsByPriorityAndAmount(slots) {
+		/** @type {Object.<Number, Array<CJSlot>>} */
 		let priorityGroups = {};
 		for (let slot of slots) {
 			if (!priorityGroups[slot.priority]) {
@@ -1288,6 +1555,10 @@
 		return priorityGroups;
 	}
 
+	/**
+	 * @param {String|Number} a
+	 * @param {String|Number} b
+	 */
 	function sortNumberDesc(a, b) {
 		if (Number(a) < Number(b)) {
 			return 1;
@@ -1298,6 +1569,10 @@
 		return 0;
 	}
 
+	/**
+	 * @param {CJSlot} a
+	 * @param {CJSlot} b
+	 */
 	function sortSlotsByDenomDesc(a, b) {
 		if (a.denom < b.denom) {
 			return 1;
@@ -1308,6 +1583,10 @@
 		return 0;
 	}
 
+	/**
+	 * @param {FullCoin} a
+	 * @param {FullCoin} b
+	 */
 	function sortCoinsByDenomAndSatsDesc(a, b) {
 		if (a.denom < b.denom) {
 			return 1;
@@ -1325,6 +1604,9 @@
 		return 0;
 	}
 
+	/**
+	 * @param {Array<String>} addrs
+	 */
 	async function updateDeltas(addrs) {
 		for (let address of addrs) {
 			let info = dbGet(address);
@@ -1385,6 +1667,10 @@
 				Object.assign(utxo, { amount: amount });
 
 				let clone = document.importNode(template, true);
+				if (!clone.firstElementChild) {
+					throw new Error(`coin row template missing child`);
+				}
+
 				$("[data-name=coin]", clone).value = [
 					utxo.address,
 					utxo.txid,
@@ -1492,6 +1778,10 @@
 		return f.toFixed(d);
 	}
 
+	/**
+	 * @param {MasternodeShort} evonode
+	 * @param {Number} height
+	 */
 	P2P.connectToPeer = async function (evonode, height) {
 		let networkInfo = App.mainnet;
 		if (App.network !== MAINNET) {
@@ -1499,7 +1789,7 @@
 		}
 
 		if (networkInfo.peers[evonode.host]) {
-			return networkInfo.peers[evonode.host];
+			return;
 		}
 
 		let p2p = DashP2P.create();
@@ -1541,48 +1831,77 @@
 		console.log("[REQ: %csenddsq%c]", "color: $55daba", "color: inherit");
 		p2p.send(senddsqBytes);
 
-		void p2p.createSubscriber(["dsq"], async function (evstream) {
-			let msg = await evstream.once("dsq");
-			let dsq = DashJoin.parsers.dsq(msg.payload);
-			let dsqStatus = {
-				// node info
-				host: evonode.host,
-				hostname: evonode.hostname,
-				port: evonode.port,
-				// dsq status
-				denomination: dsq.denomination,
-				ready: dsq.ready,
-				timestamp: dsq.timestamp,
-				timestamp_unix: dsq.timestamp_unix,
-			};
+		void p2p.createSubscriber(
+			["dsq"],
+			/**
+			 * @param {any} evstream
+			 */
+			async function (evstream) {
+				let msg = await evstream.once("dsq");
+				let dsq = DashJoin.parsers.dsq(msg.payload);
+				if (dsq.ready) {
+					console.log(
+						"%c[DEBUG dsq ready]",
+						"color: #bada55",
+						`parsed dsq`,
+						dsq,
+					);
+				} else {
+					console.log("%c[DEBUG dsq]", `parsed dsq`, dsq);
+				}
 
-			//@ts-expect-error
-			networkInfo.coinjoinQueues[dsq.denomination][evonode.host] = dsqStatus;
-			console.log(
-				"%c[[DSQ]]",
-				"color: #bada55",
-				dsqStatus.denomination,
-				dsqStatus.ready,
-				dsqStatus.host,
-			);
+				let prevDsqStatus =
+					networkInfo.coinjoinQueues[dsq.denomination][evonode.host];
+				let prevTimestamp = prevDsqStatus?.timestamp || "1970-01-01T00:00:00Z";
+				let prevDate = new Date(prevTimestamp);
+				let curDate = new Date(dsq.timestamp);
 
-			networkInfo.peers[evonode.host].latestAt = new Date();
+				let dsqStatus = {
+					// node info
+					host: evonode.host,
+					hostname: evonode.hostname,
+					port: evonode.port,
+					// dsq status
+					denomination: dsq.denomination,
+					ready: dsq.ready,
+					timestamp: dsq.timestamp,
+					timestamp_unix: dsq.timestamp_unix,
+					_prevDate: prevDate,
+					_prevMs: prevDate.valueOf(),
+					_date: curDate,
+					_ms: curDate.valueOf(),
+				};
 
-			void App._$renderPoolInfo();
-		});
+				networkInfo.coinjoinQueues[dsq.denomination][evonode.host] = dsqStatus;
+				console.log(
+					"%c[[DSQ]]",
+					"color: #bada55",
+					dsqStatus.denomination,
+					dsqStatus.ready,
+					dsqStatus.host,
+				);
+
+				networkInfo.peers[evonode.host].latestAt = new Date();
+
+				void App._$renderPoolInfo();
+			},
+		);
 
 		/**
 		 * @param {Error} err
 		 */
 		function cleanup(err) {
-			console.error("WebSocket Error:", err);
+			console.error("[cj ws cleanup]:", err);
 			delete networkInfo.peers[evonode.host];
 			for (let denom of DashJoin.DENOMS) {
 				delete networkInfo.coinjoinQueues[denom][evonode.host];
 			}
 			p2p.close();
 		}
+		//@ts-expect-error
 		wsc.addEventListener("error", cleanup);
+		//@ts-expect-error
+		wsc.addEventListener("close", cleanup);
 
 		let d = new Date();
 		networkInfo.peers[evonode.host] = {
@@ -1591,7 +1910,6 @@
 			latestAt: d,
 			node: evonode,
 		};
-		return networkInfo.peers[evonode.host];
 	};
 	// TODO close all peers
 
@@ -1604,6 +1922,11 @@
 	// 5. 'dss' sends signed inputs paired to trusted outputs
 	// 6. 'dssu' updates status
 	//      + 'dsc' confirms the tx will broadcast soon
+	/**
+	 * @param {Array<FullCoin>} inputs
+	 * @param {Array<import('dashtx').TxOutput>} outputs
+	 * @param {Array<import('dashtx').TxSummary>} collateralTxes
+	 */
 	async function createCoinJoinSession(
 		inputs, // [{address, txid, pubKeyHash, ...getPrivateKeyInfo }]
 		outputs, // [{ pubKeyHash, satoshis }]
@@ -1614,21 +1937,28 @@
 			networkInfo = App.testnet;
 		}
 
+		// TODO
 		// TODO lookup pool info to determine a cj node to engage with
-		let p2p = networkInfo.peers[networkInfo._evonode.host];
+		// TODO
+
+		let rnd = Math.random();
+		let index = Math.floor(rnd * networkInfo._evonodes.length);
+		let evonode = networkInfo._evonodes[index];
+		let p2p = networkInfo.peers[evonode.host];
 		if (!p2p) {
-			throw new Error(`'${networkInfo._evonode.host}' is not connected`);
+			throw new Error(`'${evonode.host}' is not connected`);
 		}
 
 		let denomination = inputs[0].satoshis;
 		for (let input of inputs) {
-			if (input.satoshis !== denomination) {
-				let msg = `utxo.satoshis (${input.satoshis}) must match requested denomination ${denomination}`;
+			let satoshis = input.satoshis;
+			if (satoshis !== denomination) {
+				let msg = `utxo.satoshis (${satoshis}) must match requested denomination ${denomination}`;
 				throw new Error(msg);
 			}
 		}
 		for (let output of outputs) {
-			if (!output.sateshis) {
+			if (!output.satoshis) {
 				output.satoshis = denomination;
 				continue;
 			}
@@ -1717,6 +2047,10 @@
 		return dsfTxRequest;
 	}
 
+	/**
+	 * @param {import('dashtx').TxSummary} txRequest
+	 * @param {Array<FullCoin>} inputs
+	 */
 	function makeSelectedInputsSignable(txRequest, inputs) {
 		// let selected = [];
 
@@ -1737,9 +2071,11 @@
 
 				console.log(sighashInput);
 				console.log(input);
-				sighashInput.index = input.index;
+				Object.assign({
+					index: input.index,
+					satoshis: input.satoshis,
+				});
 				sighashInput.address = input.address;
-				sighashInput.satoshis = input.satoshis;
 				sighashInput.pubKeyHash = input.pubKeyHash;
 				// sighashInput.script = input.script;
 				sighashInput.publicKey = input.publicKey;
@@ -1760,6 +2096,11 @@
 		// return selected;
 	}
 
+	/**
+	 * @param {any} txRequest
+	 * @param {Array<import('dashtx').TxOutput>} outputs
+	 * @param {Number} count
+	 */
 	function assertSelectedOutputs(txRequest, outputs, count) {
 		let _count = 0;
 		for (let output of outputs) {
@@ -1781,16 +2122,20 @@
 		}
 	}
 
-	App.peers = {};
-
 	async function main() {
 		let network = await dbGet("network", MAINNET);
+
 		$(`[name="dashNetwork"][value="${network}"]`).checked = true;
+		//@ts-expect-error
 		await $(`[name="dashNetwork"]:checked`).onchange();
 		//await App.$init(network);
 
-		$("body").removeAttribute("hidden");
+		$(`[name="wsConnLimit"]`).value = dbGet(
+			`${App.dbPrefix}max-connections`,
+			3,
+		);
 
+		$("body").removeAttribute("hidden");
 		await App.initP2p();
 	}
 
@@ -1856,3 +2201,67 @@
 		console.error(`Error in main:`, err);
 	});
 })();
+
+/**
+ * @typedef FullCoin
+ * @prop {String} address
+ * @prop {Number} satoshis
+ * @prop {Hex} txid
+ * @prop {Number} index
+ * @prop {Number} outputIndex
+ * @prop {Number} denom
+ * @prop {Hex} publicKey
+ * @prop {Hex} pubKeyHash
+ */
+
+/**
+ * @typedef MemCoin
+ * @prop {String} address
+ * @prop {Number} satoshis
+ * @prop {Hex} txid
+ * @prop {Number} index
+ */
+
+/**
+ * @typedef NodeStat
+ * @prop {String} host
+ * @prop {String} hostname
+ * @prop {Number} port
+ * @prop {Number} denomination
+ * @prop {Boolean} ready
+ * @prop {String} timestamp - ISO string
+ * @prop {Number} timestamp_unix - seconds since epoch
+ * @prop {Date} _prevDate
+ * @prop {Number} _prevMs
+ * @prop {Date} _date
+ * @prop {Number} _ms
+ */
+
+/**
+ * @typedef MasternodeShort
+ * @prop {String} id
+ * @prop {String} type
+ * @prop {String} host - "address"
+ * @prop {String} hostname
+ * @prop {String} port
+ * @prop {String} pubkeyoperator
+ */
+
+/**
+ * @typedef Masternode
+ * @prop {String} proTxHash - The ProTxHash of the masternode.
+ * @prop {String} address - The IP address and port of the masternode in the format "IP:Port".
+ * @prop {String} payee - The address to which the masternode's rewards are paid.
+ * @prop {String} status - The status of the masternode (e.g., "POSE_BANNED").
+ * @prop {String} type - The type of masternode (e.g., "Regular").
+ * @prop {Number} pospenaltyscore - The Proof-of-Service (PoSe) penalty score of the masternode.
+ * @prop {Number} consecutivePayments - The number of consecutive payments received by the masternode.
+ * @prop {Number} lastpaidtime - The Unix timestamp of the last payment to the masternode.
+ * @prop {Number} lastpaidblock - The block height of the last payment to the masternode.
+ * @prop {String} owneraddress - The owner address of the masternode.
+ * @prop {String} votingaddress - The voting address associated with the masternode.
+ * @prop {String} collateraladdress - The address used for the masternode's stake.
+ * @prop {String} pubkeyoperator - The public key of the operator for the masternode.
+ */
+
+/** @typedef {String} Hex */
