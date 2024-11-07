@@ -597,32 +597,45 @@
 								max="6"
 								onchange="window.alert('not implemented yet')"
 						/></label>
-					</form>
-					<table>
-						<thead>
+
+						<table>
+							<thead>
+								<tr>
+									<th>Network</th>
+									<th>Type</th>
+									<th>Hostname</th>
+									<th>Port</th>
+									<th>Connected At</th>
+									<th>Latest Message At</th>
+								</tr>
+							</thead>
+							<tbody data-id="connections-table-body">
+								<!-- Rows will be inserted here -->
+							</tbody>
+						</table>
+						<template data-id="connection-row-template">
 							<tr>
-								<th>Network</th>
-								<th>Type</th>
-								<th>Hostname</th>
-								<th>Port</th>
-								<th>Connected At</th>
-								<th>Latest Message At</th>
+								<td data-name="network"></td>
+								<td data-name="type"></td>
+								<td data-name="hostname"></td>
+								<td data-name="port"></td>
+								<td data-name="connected-at"></td>
+								<td data-name="last-message-at"></td>
 							</tr>
-						</thead>
-						<tbody data-id="connections-table-body">
-							<!-- Rows will be inserted here -->
-						</tbody>
-					</table>
-					<template data-id="connection-row-template">
-						<tr>
-							<td data-name="network"></td>
-							<td data-name="type"></td>
-							<td data-name="hostname"></td>
-							<td data-name="port"></td>
-							<td data-name="connected-at"></td>
-							<td data-name="last-message-at"></td>
-						</tr>
-					</template>
+						</template>
+
+						<br />
+
+						<details>
+							<summary>Mainnet Nodes</summary>
+							<pre><code data-id="mainnet-nodes">&nbsp;</code></pre>
+						</details>
+
+						<details>
+							<summary>Testnet Nodes</summary>
+							<pre><code data-id="testnet-nodes">&nbsp;</code></pre>
+						</details>
+					</form>
 
 					<header>
 						<h3>CoinJoin Demon Pools</h3>
@@ -631,41 +644,59 @@
 						<thead>
 							<tr>
 								<th>Denomination</th>
-								<th>Mainnet Pools</th>
-								<th>Testnet Pools</th>
+								<th>Pools</th>
+								<th>Delay</th>
 								<th>Latest At</th>
+								<th>Testnet Pools</th>
+								<th>Testnet Delay</th>
+								<th>Testnet Latest</th>
 							</tr>
 						</thead>
 						<tbody data-id="denominations-table-body">
 							<tr data-id="denom-1000010000">
 								<td>1000010000</td>
 								<td data-name="mainnet-pools"></td>
+								<td data-name="mainnet-delay"></td>
+								<td data-name="mainnet-at"></td>
 								<td data-name="testnet-pools"></td>
-								<td data-name="latest-message-at"></td>
+								<td data-name="testnet-delay"></td>
+								<td data-name="testnet-at"></td>
 							</tr>
 							<tr data-id="denom-100001000">
 								<td>100001000</td>
 								<td data-name="mainnet-pools"></td>
+								<td data-name="mainnet-delay"></td>
+								<td data-name="mainnet-at"></td>
 								<td data-name="testnet-pools"></td>
-								<td data-name="latest-message-at"></td>
+								<td data-name="testnet-delay"></td>
+								<td data-name="testnet-at"></td>
 							</tr>
 							<tr data-id="denom-10000100">
 								<td>10000100</td>
 								<td data-name="mainnet-pools"></td>
+								<td data-name="mainnet-delay"></td>
+								<td data-name="mainnet-at"></td>
 								<td data-name="testnet-pools"></td>
-								<td data-name="latest-message-at"></td>
+								<td data-name="testnet-delay"></td>
+								<td data-name="testnet-at"></td>
 							</tr>
 							<tr data-id="denom-1000010">
 								<td>1000010</td>
 								<td data-name="mainnet-pools"></td>
+								<td data-name="mainnet-delay"></td>
+								<td data-name="mainnet-at"></td>
 								<td data-name="testnet-pools"></td>
-								<td data-name="latest-message-at"></td>
+								<td data-name="testnet-delay"></td>
+								<td data-name="testnet-at"></td>
 							</tr>
 							<tr data-id="denom-100001">
 								<td>100001</td>
 								<td data-name="mainnet-pools"></td>
+								<td data-name="mainnet-delay"></td>
+								<td data-name="mainnet-at"></td>
 								<td data-name="testnet-pools"></td>
-								<td data-name="latest-message-at"></td>
+								<td data-name="testnet-delay"></td>
+								<td data-name="testnet-at"></td>
 							</tr>
 						</tbody>
 					</table>

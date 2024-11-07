@@ -75,6 +75,8 @@ var DashP2P = ("object" === typeof module && exports) || {};
 		p2p.payload = null;
 		let explicitEvents = ["version", "verack", "ping", "pong"];
 		p2p._eventStream = Utils.EventStream.create(explicitEvents);
+		p2p._network = "";
+		p2p._host = "";
 
 		p2p._wsc = null;
 		p2p.send = function (bytes) {
@@ -98,6 +100,8 @@ var DashP2P = ("object" === typeof module && exports) || {};
 			{ network, hostname, port, start_height },
 		) {
 			p2p._wsc = wsc;
+			p2p._network = network;
+			p2p._host = `${hostname}:${port}`;
 
 			p2p.send = function (bytes) {
 				return wsc.send(bytes);
@@ -152,7 +156,12 @@ var DashP2P = ("object" === typeof module && exports) || {};
 
 			wsc.addEventListener("message", async function (wsevent) {
 				promise._resolve(null);
-				let ab = await wsevent.data.arrayBuffer();
+				let ab = (await wsevent.data?.arrayBuffer?.()) || null;
+				if (!ab) {
+					console.error(`DEBUG event with no binary data`, wsevent);
+					wsc.close();
+					return;
+				}
 				let bytes = new Uint8Array(ab);
 				console.log(
 					`%c ws.onmessage => p2p.processBytes(bytes) [${bytes.length}]`,
@@ -213,7 +222,11 @@ var DashP2P = ("object" === typeof module && exports) || {};
 			if (p2p.state === "result") {
 				let cmd = p2p.header.command;
 				let len = p2p.payload?.length || 0;
-				console.info(`%c[[RCV: ${cmd}]]`, `color: purple`, len);
+				console.info(
+					`%c[[RCV: ${p2p._network} ${cmd} ${p2p._host} ]]`,
+					`color: purple`,
+					len,
+				);
 				let msg = {
 					command: p2p.header.command,
 					header: p2p.header,

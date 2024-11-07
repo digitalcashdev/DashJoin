@@ -1,9 +1,9 @@
-var DashJoin = ('object' === typeof module && exports) || {};
+var DashJoin = ("object" === typeof module && exports) || {};
 (function (window, DashJoin) {
-	'use strict';
+	"use strict";
 
-	let DashP2P = window.DashP2P || require('./dashp2p.js');
-	let DashTx = window.DashTx || require('dashtx');
+	let DashP2P = window.DashP2P || require("./dashp2p.js");
+	let DashTx = window.DashTx || require("dashtx");
 
 	const DV_LITTLE_ENDIAN = true;
 
@@ -98,8 +98,8 @@ var DashJoin = ('object' === typeof module && exports) || {};
 	 * @param {Uint8Array?} [opts.message]
 	 * @param {Boolean?} [opts.send]
 	 */
-	Packers.senddsq = function ({ network = 'mainnet', message, send = true }) {
-		const command = 'senddsq';
+	Packers.senddsq = function ({ network = "mainnet", message, send = true }) {
+		const command = "senddsq";
 		let [bytes, payload] = DashP2P.packers._alloc(message, Sizes.SENDDSQ);
 
 		let sendByte = [0x01];
@@ -122,12 +122,12 @@ var DashJoin = ('object' === typeof module && exports) || {};
 	 * @param {Uint8Array} opts.collateralTx
 	 */
 	Packers.dsa = function ({
-		network = 'mainnet',
+		network = "mainnet",
 		message,
 		denomination,
 		collateralTx,
 	}) {
-		const command = 'dsa';
+		const command = "dsa";
 		let dsaSize = Sizes.DENOM + collateralTx.length;
 		let [bytes, payload] = DashP2P.packers._alloc(message, dsaSize);
 
@@ -160,13 +160,13 @@ var DashJoin = ('object' === typeof module && exports) || {};
 	 * @param {Uint8Array} opts.collateralTx
 	 */
 	Packers.dsi = function ({
-		network = 'mainnet',
+		network = "mainnet",
 		message,
 		inputs,
 		collateralTx,
 		outputs,
 	}) {
-		const command = 'dsi';
+		const command = "dsi";
 
 		let neutered = [];
 		for (let input of inputs) {
@@ -179,9 +179,9 @@ var DashJoin = ('object' === typeof module && exports) || {};
 		}
 
 		let inputsHex = DashTx.serializeInputs(inputs);
-		let inputHex = inputsHex.join('');
+		let inputHex = inputsHex.join("");
 		let outputsHex = DashTx.serializeOutputs(outputs);
-		let outputHex = outputsHex.join('');
+		let outputHex = outputsHex.join("");
 
 		let dsiSize = collateralTx.length;
 		dsiSize += inputHex.length / 2;
@@ -226,8 +226,8 @@ var DashJoin = ('object' === typeof module && exports) || {};
 	 * @param {NetworkName} opts.network - "mainnet", "testnet", etc
 	 * @param {Array<import('dashtx').CoreUtxo>} [opts.inputs]
 	 */
-	Packers.dss = function ({ network = 'mainnet', message, inputs }) {
-		const command = 'dss';
+	Packers.dss = function ({ network = "mainnet", message, inputs }) {
+		const command = "dss";
 
 		if (!inputs?.length) {
 			let msg = `'dss' should receive signed inputs as requested in 'dsi' and accepted in 'dsf', but got 0 inputs`;
@@ -235,7 +235,7 @@ var DashJoin = ('object' === typeof module && exports) || {};
 		}
 
 		let txInputsHex = DashTx.serializeInputs(inputs);
-		let txInputHex = txInputsHex.join('');
+		let txInputHex = txInputsHex.join("");
 
 		let dssSize = txInputHex.length / 2;
 		let [bytes, payload] = DashP2P.packers._alloc(message, dssSize);
@@ -300,43 +300,43 @@ var DashJoin = ('object' === typeof module && exports) || {};
 	};
 
 	Parsers._DSSU_MESSAGE_IDS = {
-		0x00: 'ERR_ALREADY_HAVE',
-		0x01: 'ERR_DENOM',
-		0x02: 'ERR_ENTRIES_FULL',
-		0x03: 'ERR_EXISTING_TX',
-		0x04: 'ERR_FEES',
-		0x05: 'ERR_INVALID_COLLATERAL',
-		0x06: 'ERR_INVALID_INPUT',
-		0x07: 'ERR_INVALID_SCRIPT',
-		0x08: 'ERR_INVALID_TX',
-		0x09: 'ERR_MAXIMUM',
-		0x0a: 'ERR_MN_LIST', // <--
-		0x0b: 'ERR_MODE',
-		0x0c: 'ERR_NON_STANDARD_PUBKEY', //	 (Not used)
-		0x0d: 'ERR_NOT_A_MN', //(Not used)
-		0x0e: 'ERR_QUEUE_FULL',
-		0x0f: 'ERR_RECENT',
-		0x10: 'ERR_SESSION',
-		0x11: 'ERR_MISSING_TX',
-		0x12: 'ERR_VERSION',
-		0x13: 'MSG_NOERR',
-		0x14: 'MSG_SUCCESS',
-		0x15: 'MSG_ENTRIES_ADDED',
-		0x16: 'ERR_SIZE_MISMATCH',
+		0x00: "ERR_ALREADY_HAVE",
+		0x01: "ERR_DENOM",
+		0x02: "ERR_ENTRIES_FULL",
+		0x03: "ERR_EXISTING_TX",
+		0x04: "ERR_FEES",
+		0x05: "ERR_INVALID_COLLATERAL",
+		0x06: "ERR_INVALID_INPUT",
+		0x07: "ERR_INVALID_SCRIPT",
+		0x08: "ERR_INVALID_TX",
+		0x09: "ERR_MAXIMUM",
+		0x0a: "ERR_MN_LIST", // <--
+		0x0b: "ERR_MODE",
+		0x0c: "ERR_NON_STANDARD_PUBKEY", //	 (Not used)
+		0x0d: "ERR_NOT_A_MN", //(Not used)
+		0x0e: "ERR_QUEUE_FULL",
+		0x0f: "ERR_RECENT",
+		0x10: "ERR_SESSION",
+		0x11: "ERR_MISSING_TX",
+		0x12: "ERR_VERSION",
+		0x13: "MSG_NOERR",
+		0x14: "MSG_SUCCESS",
+		0x15: "MSG_ENTRIES_ADDED",
+		0x16: "ERR_SIZE_MISMATCH",
 	};
 
 	Parsers._DSSU_STATES = {
-		0x00: 'IDLE',
-		0x01: 'QUEUE',
-		0x02: 'ACCEPTING_ENTRIES',
-		0x03: 'SIGNING',
-		0x04: 'ERROR',
-		0x05: 'SUCCESS',
+		0x00: "IDLE",
+		0x01: "QUEUE",
+		0x02: "ACCEPTING_ENTRIES",
+		0x03: "SIGNING",
+		0x04: "ERROR",
+		0x05: "SUCCESS",
 	};
 
 	Parsers._DSSU_STATUSES = {
-		0x00: 'REJECTED',
-		0x01: 'ACCEPTED',
+		0x00: "REJECTED",
+		0x01: "ACCEPTED",
 	};
 
 	// TODO DSSU type
@@ -394,10 +394,10 @@ var DashJoin = ('object' === typeof module && exports) || {};
 		let session_id = DashTx.utils.bytesToHex(sessionId);
 		offset += Sizes.SESSION_ID;
 
-		console.log('DEBUG [[dsf]] bytes', DashTx.utils.bytesToHex(bytes));
+		console.log("DEBUG [[dsf]] bytes", DashTx.utils.bytesToHex(bytes));
 		let transactionUnsigned = bytes.subarray(offset);
 		let transaction_unsigned = DashTx.utils.bytesToHex(transactionUnsigned);
-		console.log('DEBUG [[dsf]] tx', transaction_unsigned);
+		console.log("DEBUG [[dsf]] tx", transaction_unsigned);
 
 		let txRequest = DashTx.parseUnknown(transaction_unsigned);
 		let dsfTxRequest = {
@@ -412,29 +412,31 @@ var DashJoin = ('object' === typeof module && exports) || {};
 	};
 
 	Utils._evonodeMapToList = function (evonodesMap) {
-		console.log('[debug] get evonode list...');
+		console.log("[debug] get evonode list...");
 		let evonodes = [];
 		{
 			//let resp = await rpc.masternodelist();
 			let evonodeProTxIds = Object.keys(evonodesMap);
 			for (let id of evonodeProTxIds) {
 				let evonode = evonodesMap[id];
-				if (evonode.status !== 'ENABLED') {
+				if (evonode.status !== "ENABLED") {
 					continue;
 				}
 
-				let hostParts = evonode.address.split(':');
-				let evodata = {
-					id: evonode.id,
-					host: evonode.address,
-					hostname: hostParts[0],
-					port: hostParts[1],
-					type: evonode.type,
-				};
+				let hostParts = evonode.address.split(":");
+				let evodata = Object.assign(
+					// TODO deprecate
+					{
+						host: evonode.address,
+						hostname: hostParts[0],
+						port: hostParts[1],
+					},
+					evonode,
+				);
 				evonodes.push(evodata);
 			}
 			if (!evonodes.length) {
-				throw new Error('Sanity Fail: no evonodes online');
+				throw new Error("Sanity Fail: no evonodes online");
 			}
 		}
 
@@ -467,6 +469,6 @@ var DashJoin = ('object' === typeof module && exports) || {};
 	//@ts-ignore
 	window.DashJoin = DashJoin;
 })(globalThis.window || {}, DashJoin);
-if ('object' === typeof module) {
+if ("object" === typeof module) {
 	module.exports = DashJoin;
 }
