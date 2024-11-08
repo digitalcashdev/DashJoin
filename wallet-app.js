@@ -455,7 +455,7 @@
 			`m/44'/${App.coinType}'/${accountIndex}'`;
 
 		// $('[name="walletPhrase"]').type = "password"; // delayed to avoid pw prompt
-		$('[name="walletSeed"]').type = "password"; // delayed to avoid pw prompt
+		// $('[name="walletSeed"]').type = "password"; // delayed to avoid pw prompt
 		// $('[name="phraseSalt"]').type = "password"; // delayed to avoid pw prompt
 	};
 

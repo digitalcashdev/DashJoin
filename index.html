@@ -789,20 +789,20 @@
 							<small
 								data-id="wallet-phrase-toggle"
 								onclick="
-                                  let $mask = document.querySelector('[name=walletPhraseMask]');
-                                  let $secret = document.querySelector('[name=walletPhrase]');
-                                  let $toggle = document.querySelector('[data-id=wallet-phrase-toggle]');
-                                  if ($secret.hidden) {
-                                    $toggle.textContent = 'lock 🔐';
-                                    $secret.hidden = false;
-                                    $secret.type = 'text';
-                                    $mask.hidden = true;
-                                  } else {
-                                    $toggle.textContent = 'reveal 🔎';
-                                    $secret.hidden = true;
-                                    $secret.type = 'password';
-                                    $mask.hidden = false;
-                                  }
+  let $mask = document.querySelector('[name=walletPhraseMask]');
+  let $secret = document.querySelector('[name=walletPhrase]');
+  let $toggle = document.querySelector('[data-id=wallet-phrase-toggle]');
+  if ($secret.hidden) {
+    $toggle.textContent = 'lock 🔐';
+    $secret.hidden = false;
+    $secret.type = 'text';
+    $mask.hidden = true;
+  } else {
+    $toggle.textContent = 'reveal 🔎';
+    $secret.hidden = true;
+    $secret.type = 'text';
+    $mask.hidden = false;
+  }
                                 "
 								>reveal 🔎</small
 							>
@@ -824,20 +824,20 @@
 							<small
 								data-id="phrase-salt-toggle"
 								onclick="
-                                  let $mask = document.querySelector('[name=phraseSaltMask]');
-                                  let $secret = document.querySelector('[name=phraseSalt]');
-                                  let $toggle = document.querySelector('[data-id=phrase-salt-toggle]');
-                                  if ($secret.hidden) {
-                                    $toggle.textContent = 'lock 🔐';
-                                    $secret.hidden = false;
-                                    $secret.type = 'text';
-                                    $mask.hidden = true;
-                                  } else {
-                                    $toggle.textContent = 'reveal 🔎';
-                                    $secret.hidden = true;
-                                    $secret.type = 'password';
-                                    $mask.hidden = false;
-                                  }
+  let $mask = document.querySelector('[name=phraseSaltMask]');
+  let $secret = document.querySelector('[name=phraseSalt]');
+  let $toggle = document.querySelector('[data-id=phrase-salt-toggle]');
+  if ($secret.hidden) {
+    $toggle.textContent = 'lock 🔐';
+    $secret.hidden = false;
+    $secret.type = 'text';
+    $mask.hidden = true;
+  } else {
+    $toggle.textContent = 'reveal 🔎';
+    $secret.hidden = true;
+    $secret.type = 'text';
+    $mask.hidden = false;
+  }
                                 "
 								>reveal 🔎</small
 							>
@@ -861,20 +861,32 @@
 								<small
 									data-id="wallet-seed-toggle"
 									onclick="
-                                  let $secret = document.querySelector('[name=walletSeed]');
-                                  let $toggle = document.querySelector('[data-id=wallet-seed-toggle]');
-                                  if ($secret.type === 'password') {
-                                    $toggle.textContent = 'lock 🔐';
-                                    $secret.type = 'text';
-                                  } else {
-                                    $toggle.textContent = 'reveal 🔎';
-                                    $secret.type = 'password';
-                                  }
-                                "
+  let $mask = document.querySelector('[name=walletSeedMask]');
+  let $secret = document.querySelector('[name=walletSeed]');
+  let $toggle = document.querySelector('[data-id=wallet-seed-toggle]');
+  if ($secret.hidden) {
+    $toggle.textContent = 'lock 🔐';
+    $secret.hidden = false;
+    $secret.type = 'text';
+    $mask.hidden = true;
+  } else {
+    $toggle.textContent = 'reveal 🔎';
+    $secret.hidden = true;
+    $secret.type = 'text';
+    $mask.hidden = false;
+  }
+                                    "
 									>reveal 🔎</small
 								>
 								<br />
 								<input
+									disabled
+									type="text"
+									name="walletSeedMask"
+									placeholder="  ** reveal to view or edit **"
+								/>
+								<input
+									hidden
 									disabled
 									name="walletSeed"
 									type="text"
