@@ -206,6 +206,7 @@
 					<br />
 					<br />
 				</article>
+
 				<section>
 					<form>
 						<label data-network="testnet" hidden
@@ -311,8 +312,12 @@
 						<button type="submit" onclick="App.sendDash(event)">
 							Send DASH
 						</button>
+					</form>
+				</section>
 
-						<hr />
+				<br />
+				<section>
+					<form method="dialog">
 						<label
 							>Cash Drawer (<code data-id="cj-balance">0.0000</code>)
 							<small>denominated coins</small>
@@ -504,44 +509,6 @@
 						</fieldset>
 					</form>
 				</section>
-				<br />
-				<section>
-					<form>
-						<label
-							>Export Address to WIF
-							<small>base58check-encoded pkh</small>
-							<input
-								type="text"
-								name="exportAddress"
-								placeholder="ex: ybLxVb3aspSHFgxM1qTyuBSXnjAqLFEG8P"
-							/>
-						</label>
-						<pre><code data-id="export-wif"><em>output: private key as wif</em></code></pre>
-						<button type="button" onclick="App.$exportWif(event)">
-							Export WIF
-						</button>
-						<details>
-							<summary>
-								Spent Addresses (<span data-id="spent-count">0</span>)
-								<small>addresses with spent outputs</small>
-							</summary>
-							<pre><code
-                        data-id="spent">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</code></pre>
-						</details>
-						<label
-							>Unused Payment Addresses
-							<small>base58check-encoded pkh</small>
-							<pre><code
-                        data-id="receive-addresses">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</code></pre>
-						</label>
-						<label
-							>Unused Change Addresses
-							<small>base58check-encoded pkh</small>
-							<pre><code
-                        data-id="change-addresses">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</code></pre>
-						</label>
-					</form>
-				</section>
 			</div>
 			<div data-semtab="tools">
 				<section>
@@ -719,6 +686,45 @@ change:    0.00000000 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx        1</code></pre>
 							</tr>
 						</tbody>
 					</table>
+				</section>
+
+				<br />
+				<section>
+					<form>
+						<label
+							>Export Address to WIF
+							<small>base58check-encoded pkh</small>
+							<input
+								type="text"
+								name="exportAddress"
+								placeholder="ex: ybLxVb3aspSHFgxM1qTyuBSXnjAqLFEG8P"
+							/>
+						</label>
+						<pre><code data-id="export-wif"><em>output: private key as wif</em></code></pre>
+						<button type="button" onclick="App.$exportWif(event)">
+							Export WIF
+						</button>
+						<details>
+							<summary>
+								Spent Addresses (<span data-id="spent-count">0</span>)
+								<small>addresses with spent outputs</small>
+							</summary>
+							<pre><code
+                        data-id="spent">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</code></pre>
+						</details>
+						<label
+							>Unused Payment Addresses
+							<small>base58check-encoded pkh</small>
+							<pre><code
+                        data-id="receive-addresses">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</code></pre>
+						</label>
+						<label
+							>Unused Change Addresses
+							<small>base58check-encoded pkh</small>
+							<pre><code
+                        data-id="change-addresses">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</code></pre>
+						</label>
+					</form>
 				</section>
 			</div>
 			<div data-semtab="settings">
