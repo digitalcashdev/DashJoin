@@ -115,7 +115,7 @@
 						<a data-href="#dashboard" class="active">Home</a>
 					</li>
 					<li>
-						<a data-href="#pools">Pools</a>
+						<a data-href="#tools">Tools</a>
 					</li>
 					<li>
 						<a data-href="#settings">Settings</a>
@@ -310,43 +310,6 @@
 
 						<button type="submit" onclick="App.sendDash(event)">
 							Send DASH
-						</button>
-						<hr />
-						<label
-							>Send Memo
-							<small>hex-encoded op_return</small>
-							<br />
-							<label style="display: inline-block"
-								><input
-									type="radio"
-									name="memo-encoding"
-									value="hex"
-									onchange="document.querySelector('[name=memo]').placeholder = 'ex: 48656c6c6f2c20576f726c6421'"
-									checked="checked"
-								/>
-								hex
-							</label>
-							<label style="display: inline-block"
-								><input
-									type="radio"
-									name="memo-encoding"
-									value="string"
-									onchange="document.querySelector('[name=memo]').placeholder = 'ex: Hello, World!'"
-								/>
-								string (utf-8)
-							</label>
-							<input
-								type="text"
-								name="memo"
-								placeholder="ex: 48656c6c6f2c20576f726c6421"
-							/>
-						</label>
-						<small
-							>Share: <a href="" data-id="memo-link" target="_blank"></a
-						></small>
-						<pre><code data-id="memo-txid"><em>output: txid</em></code></pre>
-						<button type="button" onclick="App.sendMemo(event)">
-							Send Memo
 						</button>
 
 						<hr />
@@ -580,7 +543,63 @@
 					</form>
 				</section>
 			</div>
-			<div data-semtab="pools">
+			<div data-semtab="tools">
+				<section>
+					<header>
+						<h3>Send Memo</h3>
+					</header>
+					<form method="dialog">
+						<label
+							>Memo Encoding
+							<small>hex-encoded op_return</small>
+							<br />
+							<label style="display: inline-block"
+								><input
+									type="radio"
+									name="memo-encoding"
+									value="hex"
+									onchange="
+                                        document.querySelector('[name=memo]').placeholder = 'ex: 48656c6c6f2c20576f726c6421';
+                                        Tools.$calcMemo(event);
+                                    "
+									checked="checked"
+								/>
+								hex
+							</label>
+							<label style="display: inline-block"
+								><input
+									type="radio"
+									name="memo-encoding"
+									value="string"
+									onchange="
+                                        document.querySelector('[name=memo]').placeholder = 'ex: Hello, World!'
+                                        Tools.$calcMemo(event);
+                                    "
+								/>
+								string (utf-8)
+							</label>
+							<input
+								type="text"
+								name="memo"
+								placeholder="ex: 48656c6c6f2c20576f726c6421"
+								onchange="Tools.$calcMemo(event)"
+								onkeyup="Tools.$calcMemo(event)"
+							/>
+						</label>
+						<pre><code data-id="memo-coins">version: 3
+input:     0.00000000 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx ffffff:0
+output:    0.00000000 "Hello, World!"                           0
+change:    0.00000000 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx        1</code></pre>
+						<small
+							>Share: <a href="" data-id="memo-link" target="_blank"></a
+						></small>
+						<pre><code data-id="memo-txid"><em>output: txid</em></code></pre>
+						<button type="button" onclick="Tools.$sendMemo(event)">
+							Send Memo
+						</button>
+					</form>
+				</section>
+
 				<section>
 					<header>
 						<h3>CoinJoin Nodes</h3>

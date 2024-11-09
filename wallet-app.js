@@ -58,6 +58,10 @@
 	//@ts-expect-error
 	window.P2P = P2P;
 
+	let Tools = {};
+	//@ts-expect-error
+	window.Tools = Tools;
+
 	const SATS = 100000000;
 	const MIN_BALANCE = 100001 * 1000;
 
@@ -701,7 +705,7 @@
 	};
 
 	/** @param {Event} event */
-	App.sendMemo = async function (event) {
+	Tools.$sendMemo = async function (event) {
 		event.preventDefault();
 
 		let msg;
@@ -718,7 +722,11 @@
 		let burn = 0;
 		msg = memo || message;
 
-		let signedTx = await App._signMemo({ burn, memo, message });
+		let changeAddress = changeAddrs.shift();
+		if (!changeAddress) {
+			throw new Error("ran out of change addresses (refresh page)");
+		}
+		let signedTx = await App._signMemo({ burn, memo, message, changeAddress });
 		{
 			let confirmed = window.confirm(
 				`Really send '${memoEncoding}' memo '${msg}'?`,
@@ -736,18 +744,111 @@
 		$("[data-id=memo-link]").href = link;
 	};
 
+	/** @param {Event} event */
+	Tools.$calcMemo = async function (event) {
+		event.preventDefault();
+
+		/** @type {String?} */
+		let memo = $("[name=memo]").value || "";
+		/** @type {String?} */
+		let message = null;
+		let memoEncoding = $("[name=memo-encoding]:checked").value || "hex";
+		if (memoEncoding !== "hex") {
+			message = memo;
+			memo = null;
+		}
+
+		let changeAddress = changeAddrs[0];
+		let burn = 0;
+		let txInfo = await App._createMemoTx({
+			burn,
+			memo,
+			message,
+			changeAddress,
+		});
+		console.info(`DEBUG txInfo`, txInfo);
+
+		let info = `version: ${txInfo.version}`;
+		for (let input of txInfo.inputs) {
+			let dashF = input.satoshis / DashTx.SATOSHIS;
+			let dashAmount = dashF.toFixed(8);
+			dashAmount = dashAmount.padStart(13, " ");
+			let coinId = input.txid.slice(0, 6);
+			coinId = `${coinId}:${input.outputIndex}`;
+			info += `\ninput:  ${dashAmount} ${input.address} ${coinId}`;
+		}
+		let change = txInfo.outputs[txInfo.changeIndex];
+		for (let i = 0; i < txInfo.outputs.length; i += 1) {
+			let output = txInfo.outputs[i];
+			if (output === change) {
+				continue;
+			}
+			let memo = `0x${output.memo}`;
+			if (output.message) {
+				memo = `"${output.message}"`;
+			}
+			memo = memo.padEnd(34, " ");
+			let dashAmount = "0.00000000".padStart(13, " ");
+			info += `\noutput: ${dashAmount} ${memo} ${i}`;
+		}
+		if (change) {
+			let dashF = change.satoshis / DashTx.SATOSHIS;
+			let dashAmount = dashF.toFixed(8);
+			dashAmount = dashAmount.padStart(13, " ");
+			info += `\nchange: ${dashAmount} ${change.address} ${txInfo.changeIndex}`;
+		}
+
+		requestAnimationFrame(function () {
+			$('[data-id="memo-coins"]').textContent = info;
+		});
+	};
+
 	/**
+	 * @callback CreateMemo
 	 * @param {Object} opts
 	 * @param {Number} [opts.burn=0]
 	 * @param {String?} [opts.memo=null]
 	 * @param {String?} [opts.message=null]
 	 * @param {Number} [opts.collateral=0]
+	 * @param {String} opts.changeAddress
 	 */
+
+	/** @type {CreateMemo} */
 	App._signMemo = async function ({
 		burn = 0,
 		memo = null,
 		message = null,
 		collateral = 0,
+		changeAddress,
+	}) {
+		let txInfo = await App._createMemoTx({
+			burn,
+			memo,
+			message,
+			collateral,
+			changeAddress,
+		});
+
+		let signedTx = await dashTx.hashAndSignAll(txInfo);
+		console.log("memo signed", signedTx);
+
+		let now = Date.now();
+		for (let input of txInfo.inputs) {
+			input.reserved = now;
+		}
+		for (let output of txInfo.outputs) {
+			output.reserved = now;
+		}
+		return signedTx;
+	};
+
+	/** @type {CreateMemo} */
+	App._createMemoTx = async function ({
+		burn = 0,
+		memo = null,
+		message = null,
+		collateral = 0,
+		changeAddress,
 	}) {
 		let satoshis = burn;
 		satoshis += collateral; // temporary, for fee calculations only
@@ -765,37 +866,32 @@
 		let txInfo = DashTx.createLegacyTx(utxos, outputs, changeOutput);
 		if (txInfo.changeIndex >= 0) {
 			let realChange = txInfo.outputs[txInfo.changeIndex];
-			realChange.address = changeAddrs.shift();
+			realChange.address = changeAddress;
 			let pkhBytes = await DashKeys.addrToPkh(realChange.address, {
 				version: App.network,
 			});
 			realChange.pubKeyHash = DashKeys.utils.bytesToHex(pkhBytes);
 		}
 		memoOutput.satoshis -= collateral; // adjusting for fee
-		console.log("DEBUG", txInfo);
-
-		let now = Date.now();
-		for (let input of txInfo.inputs) {
-			input.reserved = now;
-		}
-		for (let output of txInfo.outputs) {
-			output.reserved = now;
-		}
+		console.log("DEBUG memo txInfo", txInfo);
 
 		txInfo.inputs.sort(DashTx.sortInputs);
 		txInfo.outputs.sort(DashTx.sortOutputs);
 
-		let signedTx = await dashTx.hashAndSignAll(txInfo);
-		console.log("memo signed", signedTx);
-		return signedTx;
+		return txInfo;
 	};
 
 	App._signCollateral = async function (collateral = DashJoin.MIN_COLLATERAL) {
+		let changeAddress = changeAddrs.shift();
+		if (!changeAddress) {
+			throw new Error("ran out of change addresses (refresh page)");
+		}
 		let signedTx = await App._signMemo({
 			burn: 0,
 			memo: "",
 			message: null,
 			collateral: DashJoin.MIN_COLLATERAL,
+			changeAddress: changeAddress,
 		});
 		console.log("collat signed", signedTx);
 		let signedTxBytes = DashTx.utils.hexToBytes(signedTx.transaction);
