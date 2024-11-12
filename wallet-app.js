@@ -1,8 +1,14 @@
+import DashJoin from "./dashjoin.js";
+import DashP2P from "./dashp2p.js";
+
 (function () {
 	"use strict";
+	/* jshint maxstatements: 1000 */
 
 	//@ts-expect-error
 	let QRCode = window.QRCode;
+
+	/** @typedef {HTMLElement & HTMLInputElement & HTMLAnchorElement & HTMLTemplateElement} HTMLOmniElement */
 
 	/**
 	 * @param {String} sel
@@ -34,6 +40,31 @@
 		return $els;
 	}
 
+	/**
+	 * @template T
+	 * @param {Array<T>} array
+	 * @returns {Array<T>}
+	 */
+	function knuthShuffle(array) {
+		let currentIndex = array.length;
+		let temporaryValue;
+
+		// While there remain elements to shuffle...
+		while (currentIndex > 0) {
+			// Pick a remaining element...
+			let randomIndex = Math.random() * currentIndex;
+			randomIndex = Math.floor(randomIndex);
+			currentIndex -= 1;
+
+			// And swap it with the current element.
+			temporaryValue = array[currentIndex];
+			array[currentIndex] = array[randomIndex];
+			array[randomIndex] = temporaryValue;
+		}
+
+		return array;
+	}
+
 	//@ts-expect-error
 	let DashPhrase = window.DashPhrase;
 	//@ts-expect-error
@@ -44,11 +75,6 @@
 	let DashTx = window.DashTx;
 	//@ts-expect-error
 	let Secp256k1 = window.nobleSecp256k1;
-
-	//@ts-expect-error
-	let DashJoin = window.DashJoin;
-	//@ts-expect-error
-	let DashP2P = window.DashP2P;
 
 	let App = {};
 	//@ts-expect-error
@@ -145,10 +171,19 @@
 	 * @prop {Number} maxConns
 	 * @prop {Boolean} initialized
 	 * @prop {Object.<Number, NodeStat>} coinjoinQueues
-	 * @prop {Array<MasternodeShort>} _rawmnlist
+	 * @prop {Object.<String, Masternode>} masternodelist
+	 * @prop {Object.<String, Masternode>} nodesByProTxHash
 	 * @prop {ChainInfo} _chaininfo
 	 * @prop {Array<MasternodeShort>} _evonodes
-	 * @prop {Object.<String, ReturnType<typeof DashP2P.create>>} peers
+	 * @prop {Object.<String, PeerInfo>} peers
+	 */
+
+	/**
+	 * @typedef PeerInfo
+	 * @prop {ReturnType<typeof DashP2P.create>} p2p
+	 * @prop {Date} connectedAt
+	 * @prop {Date} latestAt
+	 * @prop {MasternodeShort} node
 	 */
 
 	/** @type {NetworkInfo} */
@@ -157,13 +192,12 @@
 		maxConns: 3,
 		initialized: false,
 		coinjoinQueues: globalThis.structuredClone(emptyCoinjoinQueues),
-		_rawmnlist: [],
+		masternodelist: {},
 		_chaininfo: {
 			blocks: 0, // height
 		},
-		/** @type {Array<MasternodeShort>} */
 		_evonodes: [],
-		/** @type {Object.<String, ReturnType<typeof DashP2P.create>>} */
+		nodesByProTxHash: {},
 		peers: {},
 	};
 
@@ -173,15 +207,32 @@
 		maxConns: 3,
 		initialized: false,
 		coinjoinQueues: globalThis.structuredClone(emptyCoinjoinQueues),
-		_rawmnlist: [],
+		masternodelist: {},
 		_chaininfo: {
 			blocks: 0, // height
 		},
-		/** @type {Array<MasternodeShort>} */
 		_evonodes: [],
-		/** @type {Object.<String, ReturnType<typeof DashP2P.create>>} */
+		nodesByProTxHash: {},
 		peers: {},
 	};
+
+	/**
+	 * @typedef SessionInfo
+	 * @prop {String} host - hostname:port
+	 * @prop {Array<Partial<import('dashtx').TxInputForSig>>} inputs
+	 * @prop {String} denomination
+	 * @prop {String} dssu - dssu.state
+	 * @prop {Date} dsa
+	 * @prop {Date} dsq - only if ready flag is set
+	 * @prop {Date} dsi
+	 * @prop {Date} dsf
+	 * @prop {Date} dss
+	 * @prop {Date} dsc
+	 */
+
+	/** @typedef {String} Hostname */
+	/** @type {Object.<Hostname, SessionInfo>} */
+	App.sessions = {};
 
 	let keyUtils = {
 		/**
@@ -351,13 +402,13 @@
 	/** @param {String} maxConnStr */
 	App.$setMaxConn = async function (maxConnStr) {
 		let maxConn = parseInt(maxConnStr, 10);
+		if (!maxConn) {
+			throw new Error(`invalid maximum connections '${maxConnStr}'`);
+		}
 
 		await dbSet(`max-connections`, maxConn);
 		await dbSet(`testnet-max-connections`, maxConn);
 
-		await dbSet("network", App.network);
-
-		await App.$init(App.network);
 		await App.initP2p();
 	};
 
@@ -1118,15 +1169,29 @@
 			networkInfo = App.testnet;
 		}
 		if (!networkInfo.initialized) {
-			networkInfo._rawmnlist = await App.rpc("masternodelist");
+			networkInfo.masternodelist = await App.rpc("masternodelist");
 			networkInfo._chaininfo = await App.rpc("getblockchaininfo");
 			networkInfo._evonodes = DashJoin.utils._evonodeMapToList(
-				networkInfo._rawmnlist,
+				networkInfo.masternodelist,
 			);
 			networkInfo.initialized = true;
 		}
 
-		console.log(`DEBUG evonodes (raw, as map)`, networkInfo._rawmnlist);
+		let nodeIds = Object.keys(networkInfo.masternodelist);
+		for (let nodeId of nodeIds) {
+			let nodeInfo = Object.assign(
+				{
+					id: nodeId,
+				},
+				networkInfo.masternodelist[nodeId],
+			);
+			nodeInfo.host = nodeInfo.address;
+			networkInfo.nodesByProTxHash[nodeInfo.proTxHash] = nodeInfo;
+		}
+		console.log(
+			`DEBUG ${networkInfo.network} evonodes (raw, as map)`,
+			networkInfo.nodesByProTxHash,
+		);
 
 		for (;;) {
 			let hostnames = Object.keys(networkInfo.peers);
@@ -1141,7 +1206,7 @@
 
 			// networkInfo.peers[evonode.host].connection.close();
 
-			console.info("[info] chosen evonode:", evonode.host);
+			console.info("[info] chosen evonode:", evonode.address);
 			void (await P2P.connectToPeer(
 				evonode,
 				networkInfo._chaininfo.blocks,
@@ -1155,14 +1220,14 @@
 			}
 
 			let hostname = hostnames.shift() || "";
-			let host = networkInfo.peers[hostname];
+			let nodeInfo = networkInfo.peers[hostname];
 			console.log(
 				`DEBUG host '${hostname}' '${hostnames}'`,
-				host,
+				nodeInfo,
 				networkInfo.peers,
 			);
 			delete networkInfo.peers[hostname];
-			host.connection?.close();
+			nodeInfo.connection?.close();
 		}
 
 		void App._$renderPoolInfo();
@@ -1241,7 +1306,6 @@
 						stat.delay = delay;
 					}
 					stat.at = dsqStatus._ms;
-					console.log(`[DEBUG] ms`, stat.at);
 
 					let staleTime = 15000; // TODO what's a good number for this?
 					let age = now - stat.at;
@@ -1307,7 +1371,7 @@
 						`${testnetStat.delay}s`;
 				}
 				if (testnetStat.at) {
-					let latestDate = new Date(mainnetStat.at);
+					let latestDate = new Date(testnetStat.at);
 					$(`[data-name="testnet-at"]`, $denomRow).textContent =
 						latestDate.toLocaleTimeString();
 				}
@@ -1315,6 +1379,71 @@
 
 			tableBody.replaceChildren($rows);
 		});
+	};
+
+	App._$renderSessions = function () {
+		let sessions = Object.values(App.sessions);
+
+		requestAnimationFrame(function () {
+			for (let session of sessions) {
+				App._$renderSession(session);
+			}
+		});
+	};
+
+	/**
+	 * @param {SessionInfo} session
+	 */
+	App._$renderSession = function (session) {
+		let firstAddress = session.inputs[0]?.address || "";
+
+		let tableBody = $('[data-id="sessions-table-body"]');
+		/** @type {HTMLOmniElement?} */
+		let $row = document.body.querySelector(
+			`[data-row="${session.host}_${firstAddress}"]`,
+		);
+
+		if (!$row) {
+			/** @type {HTMLElement} */ //@ts-expect-error
+			let template = $('[data-id="sessions-row-template"]').content.cloneNode(
+				true,
+			);
+			$row = $("tr", template);
+			$row.dataset.row = `${session.host}_${firstAddress}`;
+			$('[data-name="denomination"]', $row).textContent = session.denomination;
+			$('[data-name="hostname"]', $row).textContent = session.host;
+			$('[data-name="address"]', $row).textContent = firstAddress;
+			tableBody.appendChild($row);
+		}
+
+		if (session.dsa) {
+			$(`[data-name="dsa"]`, $row).textContent = "➡️";
+		}
+		if (session.dssu) {
+			$(`[data-name="dssu"]`, $row).textContent = session.dssu;
+		}
+
+		let eventnames = ["dsa", "dsq", "dsi", "dsf", "dss", "dsc"];
+		for (let i = 1; i < eventnames.length; i += 1) {
+			let curEvent = eventnames[i];
+			/* @type {Date?} */ //@ts-expect-error
+			let curDate = session[curEvent]?.valueOf();
+			if (!curDate) {
+				console.log(`NO ⏰ for '${curEvent}'`);
+				break;
+			}
+
+			let prevEventIndex = i - 1;
+			let prevEvent = eventnames[prevEventIndex];
+			/* @type {Date?} */ //@ts-expect-error
+			let prevDate = session[prevEvent]?.valueOf();
+
+			let deltaMs = curDate - prevDate;
+			let deltaS = deltaMs / 1000;
+			let delta = deltaS.toFixed(2);
+
+			$(`[data-name="${curEvent}"]`, $row).textContent = delta;
+		}
 	};
 
 	/**
@@ -1875,25 +2004,29 @@
 	}
 
 	/**
-	 * @param {MasternodeShort} evonode
+	 * @param {MasternodeShort} nodeInfo
 	 * @param {Number} height
 	 */
-	P2P.connectToPeer = async function (evonode, height) {
+	P2P.connectToPeer = async function (nodeInfo, height) {
 		let networkInfo = App.mainnet;
 		if (App.network !== MAINNET) {
 			networkInfo = App.testnet;
 		}
 
-		if (networkInfo.peers[evonode.host]) {
+		let host = nodeInfo.address || nodeInfo.host;
+		if (networkInfo.peers[host]) {
 			return;
 		}
 
 		let p2p = DashP2P.create();
 
+		let hostParts = host.split(":");
+		let hostname = hostParts[0];
+		let port = hostParts[1];
 		let query = {
 			access_token: "secret",
-			hostname: evonode.hostname,
-			port: evonode.port,
+			hostname: hostname,
+			port: port,
 		};
 		let searchParams = new URLSearchParams(query);
 		let search = searchParams.toString();
@@ -1918,14 +2051,14 @@
 
 		await p2p.initWebSocket(wsc, {
 			network: networkInfo.network,
-			hostname: evonode.hostname,
-			port: evonode.port,
+			hostname: hostname,
+			port: port,
 			start_height: height,
 		});
 
 		let senddsqBytes = DashJoin.packers.senddsq({ network: App.network });
 		console.log("[REQ: %csenddsq%c]", "color: $55daba", "color: inherit");
-		p2p.send(senddsqBytes);
+		p2p.send(senddsqBytes); // 'senddsq' is to SUBSCRIBE
 
 		void p2p.createSubscriber(
 			["dsq"],
@@ -1935,6 +2068,19 @@
 			async function (evstream) {
 				let msg = await evstream.once("dsq");
 				let dsq = DashJoin.parsers.dsq(msg.payload);
+
+				let hostnode = networkInfo.nodesByProTxHash[dsq.protxhash];
+				if (!hostnode) {
+					console.warn(`warn: no connectable node for ${dsq.protxhash}`);
+					return;
+				}
+
+				let prevDsqStatus =
+					networkInfo.coinjoinQueues[dsq.denomination][dsq.protxhash];
+				let prevTimestamp = prevDsqStatus?.timestamp || "1970-01-01T00:00:00Z";
+				let prevDate = new Date(prevTimestamp);
+				let curDate = new Date(dsq.timestamp);
+
 				if (dsq.ready) {
 					console.log(
 						"%c[DEBUG dsq ready]",
@@ -1943,41 +2089,49 @@
 						dsq,
 					);
 				} else {
-					console.log("%c[DEBUG dsq]", `parsed dsq`, dsq);
+					// console.log(
+					// 	"%c[DEBUG dsq]",
+					// 	"color: #dababa",
+					// 	`parsed dsq from ${evonode.hostname}`,
+					// 	dsq,
+					// );
 				}
 
-				let prevDsqStatus =
-					networkInfo.coinjoinQueues[dsq.denomination][evonode.host];
-				let prevTimestamp = prevDsqStatus?.timestamp || "1970-01-01T00:00:00Z";
-				let prevDate = new Date(prevTimestamp);
-				let curDate = new Date(dsq.timestamp);
+				let dsqStatus =
+					networkInfo.coinjoinQueues[dsq.denomination][hostnode.proTxHash];
+				if (!dsqStatus) {
+					dsqStatus = {
+						// node info
+						address: hostnode.address,
+						host: hostnode.address, // deprecated
+						// dsq status
+						protxhash: dsq.protxhash,
+						denomination: dsq.denomination,
+						ready: dsq.ready,
+						timestamp: dsq.timestamp,
+						timestamp_unix: dsq.timestamp_unix,
+						_prevDate: prevDate,
+						_prevMs: prevDate.valueOf(),
+						_date: curDate,
+						_ms: curDate.valueOf(),
+						_reportedBy: {},
+					};
+					networkInfo.coinjoinQueues[dsq.denomination][hostnode.proTxHash] =
+						dsqStatus;
+				}
+				dsqStatus._reportedBy[nodeInfo.address] = new Date();
 
-				let dsqStatus = {
-					// node info
-					host: evonode.host,
-					hostname: evonode.hostname,
-					port: evonode.port,
-					// dsq status
-					denomination: dsq.denomination,
-					ready: dsq.ready,
-					timestamp: dsq.timestamp,
-					timestamp_unix: dsq.timestamp_unix,
-					_prevDate: prevDate,
-					_prevMs: prevDate.valueOf(),
-					_date: curDate,
-					_ms: curDate.valueOf(),
-				};
-
-				networkInfo.coinjoinQueues[dsq.denomination][evonode.host] = dsqStatus;
+				let reporters = Object.keys(dsqStatus._reportedBy);
 				console.log(
 					"%c[[DSQ]]",
 					"color: #bada55",
 					dsqStatus.denomination,
 					dsqStatus.ready,
-					dsqStatus.host,
+					dsqStatus.address,
+					reporters.length,
 				);
 
-				networkInfo.peers[evonode.host].latestAt = new Date();
+				networkInfo.peers[nodeInfo.address].latestAt = new Date();
 
 				void App._$renderPoolInfo();
 			},
@@ -1988,9 +2142,9 @@
 		 */
 		function cleanup(err) {
 			console.error("[cj ws cleanup]:", err);
-			delete networkInfo.peers[evonode.host];
+			delete networkInfo.peers[nodeInfo.address];
 			for (let denom of DashJoin.DENOMS) {
-				delete networkInfo.coinjoinQueues[denom][evonode.host];
+				delete networkInfo.coinjoinQueues[denom][nodeInfo.proTxHash];
 			}
 			p2p.close();
 		}
@@ -2000,13 +2154,39 @@
 		wsc.addEventListener("close", cleanup);
 
 		let d = new Date();
-		networkInfo.peers[evonode.host] = {
+		networkInfo.peers[nodeInfo.address] = {
 			connection: p2p,
 			connectedAt: d,
 			latestAt: d,
-			node: evonode,
+			node: nodeInfo,
 		};
 	};
+
+	/**
+	 * @param {MasternodeShort} nodeInfo
+	 * @param {Number} height
+	 * @param {Number} [maxAttempts=10]
+	 */
+	P2P.connectToNodeRealHard = async function (
+		nodeInfo,
+		height,
+		maxAttempts = 15,
+	) {
+		let count = 0;
+		for (;;) {
+			try {
+				await P2P.connectToPeer(nodeInfo, height);
+			} catch (e) {
+				if (count > maxAttempts) {
+					throw new Error(`can't connect to node ${nodeInfo.address}`);
+				}
+				continue;
+			}
+			count += 1;
+			await sleep(250);
+		}
+	};
+
 	// TODO close all peers
 
 	// 0. 'dsq' broadcast puts a node in the local in-memory pool
@@ -2018,34 +2198,81 @@
 	// 5. 'dss' sends signed inputs paired to trusted outputs
 	// 6. 'dssu' updates status
 	//      + 'dsc' confirms the tx will broadcast soon
+
 	/**
+	 * @param {String} network
+	 * @param {Number} denomination
+	 * @param {ReturnType<typeof DashP2P.create>} p2p
 	 * @param {Array<FullCoin>} inputs
 	 * @param {Array<import('dashtx').TxOutput>} outputs
-	 * @param {Array<import('dashtx').TxSummary>} collateralTxes
+	 * @param {Array<Uint8Array>} collateralTxes
 	 */
-	async function createCoinJoinSession(
-		inputs, // [{address, txid, pubKeyHash, ...getPrivateKeyInfo }]
-		outputs, // [{ pubKeyHash, satoshis }]
-		collateralTxes, // (for dsa and dsi) any 2 txes having fees >=0.00010000 more than necessary
+	async function requestCoinJoinSession(
+		network,
+		denomination,
+		p2p,
+		inputs,
+		outputs,
+		collateralTxes,
 	) {
-		let networkInfo = App.mainnet;
-		if (App.network !== MAINNET) {
-			networkInfo = App.testnet;
+		assertDenomination(denomination, inputs, outputs);
+
+		// todo: pick a smaller size that matches the dss
+		let message = new Uint8Array(DashP2P.PAYLOAD_SIZE_MAX);
+		let evstream = p2p.createSubscriber(["dssu", "dsq", "dsf", "dsc"]);
+		if (!evstream) {
+			throw new Error(
+				"TODO: create separate function call for createSubscriber",
+			);
 		}
 
-		// TODO
-		// TODO lookup pool info to determine a cj node to engage with
-		// TODO
+		/** @type {Uint8Array} */
+		let collateralTx = collateralTxes[0]; // to be reused
+		let dsa = {
+			network: network,
+			message: message,
+			denomination: denomination,
+			collateralTx: collateralTx,
+		};
+		let dsaBytes = DashJoin.packers.dsa(dsa);
+		p2p.send(dsaBytes);
 
-		let rnd = Math.random();
-		let index = Math.floor(rnd * networkInfo._evonodes.length);
-		let evonode = networkInfo._evonodes[index];
-		let p2p = networkInfo.peers[evonode.host];
-		if (!p2p) {
-			throw new Error(`'${evonode.host}' is not connected`);
+		for (;;) {
+			// TODO Promise.race(timeout)
+			// if (!msg) { throw new Error('timeout') }
+			let msg = await evstream.once();
+
+			if (msg.command === "dsq") {
+				let dsq = DashJoin.parsers.dsq(msg.payload);
+				if (dsq.denomination !== denomination) {
+					continue;
+				}
+
+				// TODO
+				// is there a possibility that it could both tell me about
+				// another pool to join and then also accept me into its pool?
+
+				return dsq; // { ready, protxhash}
+			}
+
+			if (msg.command === "dssu") {
+				let dssu = DashJoin.parsers.dssu(msg.payload);
+				if (dssu.state === "ERROR") {
+					evstream.close();
+					break;
+				}
+			}
 		}
 
-		let denomination = inputs[0].satoshis;
+		throw new Error(`dssu status is 'ERROR'`);
+	}
+
+	/**
+	 * @param {Number} denomination
+	 * @param {Array<FullCoin>} inputs
+	 * @param {Array<import('dashtx').TxOutput>} outputs
+	 */
+	async function assertDenomination(denomination, inputs, outputs) {
 		for (let input of inputs) {
 			let satoshis = input.satoshis;
 			if (satoshis !== denomination) {
@@ -2063,22 +2290,48 @@
 				throw new Error(msg);
 			}
 		}
+	}
 
+	/**
+	 * @param {String} network
+	 * @param {Number} denomination
+	 * @param {ReturnType<typeof DashP2P.create>} p2p
+	 * @param {Array<FullCoin>} inputs
+	 * @param {Array<import('dashtx').TxOutput>} outputs
+	 * @param {Array<Uint8Array>} collateralTxes
+	 * @param {Function} notify
+	 */
+	async function joinCoinJoinSession(
+		network, // "mainnet"
+		denomination, // 1000010000
+		p2p, // {createSubscriber, send}
+		inputs, // [{address, txid, pubKeyHash, ...getPrivateKeyInfo }]
+		outputs, // [{ pubKeyHash, satoshis }]
+		collateralTxes, // (for dsa and dsi) any 2 txes having fees >=0.00010000 more than necessary
+		notify,
+	) {
 		// todo: pick a smaller size that matches the dss
 		let message = new Uint8Array(DashP2P.PAYLOAD_SIZE_MAX);
 		let evstream = p2p.createSubscriber(["dssu", "dsq", "dsf", "dsc"]);
+		if (!evstream) {
+			throw new Error(
+				"TODO: create separate function call for createSubscriber",
+			);
+		}
 
 		{
+			/** @type {Uint8Array} */ //@ts-expect-error
 			let collateralTx = collateralTxes.shift();
 			let dsa = {
-				network: networkInfo.network,
+				network: network,
 				message: message,
 				denomination: denomination,
 				collateralTx: collateralTx,
 			};
 			let dsaBytes = DashJoin.packers.dsa(dsa);
-			console.log("DEBUG dsa, dsaBytes", dsa, dsaBytes);
+			console.log("➡️ DEBUG dsa, dsaBytes", dsa, dsaBytes);
 			p2p.send(dsaBytes);
+			notify("send", "dsa");
 			for (;;) {
 				let msg = await evstream.once();
 
@@ -2088,8 +2341,10 @@
 						continue;
 					}
 					if (!dsq.ready) {
+						// TODO switch to the good node
 						continue;
 					}
+					notify("receive", "dsq");
 					break;
 				}
 
@@ -2099,6 +2354,7 @@
 						evstream.close();
 						throw new Error();
 					}
+					notify("receive", "dssu", dssu.state);
 				}
 			}
 		}
@@ -2107,14 +2363,18 @@
 		{
 			let collateralTx = collateralTxes.shift();
 			let dsiBytes = DashJoin.packers.dsi({
-				network: networkInfo.network,
+				network: network,
 				message: message,
 				inputs: inputs,
 				collateralTx: collateralTx,
 				outputs: outputs,
 			});
 			p2p.send(dsiBytes);
+			notify("send", "dsi");
+
 			let msg = await evstream.once("dsf");
+			notify("receive", "dsf");
+
 			console.log("DEBUG dsf %c[[MSG]]", "color: blue", msg);
 			let dsfTxRequest = DashJoin.parsers.dsf(msg.payload);
 			console.log("DEBUG dsf", dsfTxRequest, inputs);
@@ -2132,12 +2392,15 @@
 			assertSelectedOutputs(dsfTxRequest, outputs, inputs.length);
 
 			let dssBytes = DashJoin.packers.dss({
-				network: networkInfo.network,
+				network: network,
 				message: message,
 				inputs: signedInputs,
 			});
 			p2p.send(dssBytes);
+			notify("send", "dss");
+
 			void (await evstream.once("dsc"));
+			notify("receive", "dsc");
 		}
 
 		return dsfTxRequest;
@@ -2218,6 +2481,15 @@
 		}
 	}
 
+	/**
+	 * @param {Number} ms
+	 */
+	async function sleep(ms) {
+		return await new Promise(function (resolve) {
+			setTimeout(resolve, ms);
+		});
+	}
+
 	async function main() {
 		let network = await dbGet("network", MAINNET);
 
@@ -2286,11 +2558,134 @@
 			await App._signCollateral(DashJoin.MIN_COLLATERAL),
 		];
 
-		await createCoinJoinSession(
-			inputs, // [{address, txid, pubKeyHash, ...getPrivateKeyInfo }]
-			outputs, // [{ pubKeyHash, satoshis }]
-			collateralTxes, // any tx with fee >= 0.00010000
-		);
+		let networkInfo = App.mainnet;
+		if (App.network !== MAINNET) {
+			networkInfo = App.testnet;
+		}
+
+		let hosts = Object.keys(networkInfo.peers);
+		void knuthShuffle(hosts);
+
+		/** @type {String} */
+		let host;
+		for (;;) {
+			let _host = hosts.shift();
+			if (!_host) {
+				throw new Error(`all available connections are currently mixing`);
+			}
+			if (!App.sessions[_host]) {
+				host = _host;
+				break;
+			}
+		}
+
+		// /** @type {PeerInfo} cjNodeInfo */
+		// let cjNodeInfo;
+		let p2p = networkInfo.peers[host].connection;
+		/** @type {SessionInfo} */
+		let session = {
+			denomination: denom,
+			host: host,
+			inputs: inputs,
+			dssu: "",
+			dsa: new Date(),
+			dsq: new Date(0),
+			dsi: new Date(0),
+			dsf: new Date(0),
+			dss: new Date(0),
+			dsc: new Date(0),
+		};
+		try {
+			App.sessions[host] = session;
+
+			let minute = 60 * 1000;
+			let timeout = 5 * minute;
+
+			session.dsa = new Date();
+			App._$renderSessions();
+
+			/** @type {ReturnType<typeof DashJoin.parsers.dsq>?} */
+			let matchingDsq = null;
+			let denomination = inputs[0].satoshis;
+			let dsqPromise = requestCoinJoinSession(
+				networkInfo.network,
+				denomination,
+				p2p,
+				inputs,
+				outputs,
+				collateralTxes,
+			).then(function (dsq) {
+				matchingDsq = dsq;
+			});
+			let dsqTimeout = sleep(timeout).then(function () {
+				if (!matchingDsq) {
+					session.dssu = "(timeout)";
+				}
+			});
+			await Promise.race([dsqPromise, dsqTimeout]);
+			if (!matchingDsq) {
+				return;
+			}
+			/** @type {ReturnType<typeof DashJoin.parsers.dsq>} */
+			let _matchingDsq = matchingDsq;
+			if (_matchingDsq.ready) {
+				session.dsq = new Date();
+				App._$renderSessions();
+			}
+
+			let nodeInfo = networkInfo.nodesByProTxHash[_matchingDsq.protxhash];
+			let p2pHost = networkInfo.peers[nodeInfo.address]?.connection;
+			if (!p2pHost) {
+				await P2P.connectToNodeRealHard(
+					nodeInfo,
+					networkInfo._chaininfo.blocks,
+					10,
+				);
+				p2pHost = networkInfo.peers[nodeInfo.address].connection;
+			}
+
+			let joinPromise = joinCoinJoinSession(
+				networkInfo.network,
+				denomination,
+				p2pHost,
+				inputs,
+				outputs,
+				collateralTxes,
+				/**
+				 * @param {String} direction
+				 * @param {String} eventname
+				 * @param {any} msg
+				 */
+				function notify(direction, eventname, msg) {
+					console.log("🧨 DEBUG eventname", eventname);
+					if (eventname === "dssu") {
+						session.dssu = msg.status;
+					} else {
+						//@ts-expect-error
+						session[eventname] = new Date();
+					}
+
+					App._$renderSessions();
+				},
+			);
+			let joinTimeout = sleep(timeout).then(function () {
+				if (!session.dsc) {
+					session.dssu = "(timeout)";
+				}
+			});
+			await Promise.race([joinPromise, joinTimeout]);
+		} catch (e) {
+			console.error(e);
+			session.dssu = "(error)";
+			throw e;
+		} finally {
+			App._$renderSessions();
+			if (p2p) {
+				p2p.close();
+			}
+			delete App.sessions[host];
+			//await App.initP2p();
+		}
 	};
 
 	main().catch(function (err) {
@@ -2321,8 +2716,8 @@
 /**
  * @typedef NodeStat
  * @prop {String} host
- * @prop {String} hostname
- * @prop {Number} port
+ * @prop {String} address
+ * @prop {String} protxhash
  * @prop {Number} denomination
  * @prop {Boolean} ready
  * @prop {String} timestamp - ISO string
@@ -2336,7 +2731,9 @@
 /**
  * @typedef MasternodeShort
  * @prop {String} id
+ * @prop {String} proTxHash
  * @prop {String} type
+ * @prop {String} address
  * @prop {String} host - "address"
  * @prop {String} hostname
  * @prop {String} port
@@ -2345,6 +2742,7 @@
 
 /**
  * @typedef Masternode
+ * @prop {String} id - dunno, but it looks like tx and output index
  * @prop {String} proTxHash - The ProTxHash of the masternode.
  * @prop {String} address - The IP address and port of the masternode in the format "IP:Port".
  * @prop {String} payee - The address to which the masternode's rewards are paid.
