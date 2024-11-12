@@ -1,8 +1,10 @@
 import DashP2P from "./dashp2p.js";
+// import DashTx from "./node_modules/dashtx/dashtx.js";
 
 let DashJoin = {};
 
-let DashTx = window.DashTx || require("dashtx");
+//@ts-expect-error
+let DashTx = globalThis?.window?.DashTx;
 
 const DV_LITTLE_ENDIAN = true;
 
@@ -218,6 +220,8 @@ Packers.dsi = function ({
 	void DashP2P.packers.message({ network, command, bytes });
 	return bytes;
 };
+
+/** @typedef {"mainnet"|"testnet"|String} NetworkName */
 
 /**
  * @param {Object} opts

@@ -523,9 +523,11 @@ Packers.message = function ({
 	return message;
 };
 
+/** @typedef {Number} Uint16 */
+
 /**
  * Returns a correctly-sized buffer and subarray into the payload
- * @param {Uint8Array} bytes
+ * @param {Uint8Array|undefined?} bytes
  * @param {Uint16} payloadSize
  */
 Packers._alloc = function (bytes, payloadSize) {
@@ -574,7 +576,7 @@ Packers._checksum = function (payload) {
 /* (it's simply very complex, okay?) */
 Packers.version = function ({
 	network = "mainnet",
-	message,
+	message = null,
 	protocol_version = Packers.PROTOCOL_VERSION,
 	// alias of addr_trans_services
 	//services,
@@ -795,7 +797,7 @@ Packers.version = function ({
  * No payload, just an ACK
  * @param {Object} opts
  * @param {NetworkName} opts.network - "mainnet", "testnet", etc
- * @param {Uint8Array?} [opts.message] - preallocated bytes
+ * @param {Uint8Array?} opts.message - preallocated bytes
  */
 Packers.verack = function ({ network = "mainnet", message }) {
 	const command = "verack";
