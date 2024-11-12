@@ -219,6 +219,7 @@ import DashP2P from "./dashp2p.js";
 	/**
 	 * @typedef SessionInfo
 	 * @prop {String} host - hostname:port
+	 * @prop {String} address - hostname:port
 	 * @prop {Array<Partial<import('dashtx').TxInputForSig>>} inputs
 	 * @prop {String} denomination
 	 * @prop {String} dssu - dssu.state
@@ -1411,21 +1412,36 @@ import DashP2P from "./dashp2p.js";
 			$row = $("tr", template);
 			$row.dataset.row = `${session.host}_${firstAddress}`;
 			$('[data-name="denomination"]', $row).textContent = session.denomination;
-			$('[data-name="hostname"]', $row).textContent = session.host;
 			$('[data-name="address"]', $row).textContent = firstAddress;
 			tableBody.appendChild($row);
 		}
 
-		if (session.dsa) {
+		let hostname = session.host.replace(/:.*/, "");
+		$('[data-name="hostname"]', $row).textContent = hostname;
+
+		if (session.dsa.valueOf()) {
 			$(`[data-name="dsa"]`, $row).textContent = "➡️";
+		}
+		if (session.dsi.valueOf()) {
+			$(`[data-name="dsi"]`, $row).textContent = "➡️";
+		}
+		if (session.dss.valueOf()) {
+			$(`[data-name="dss"]`, $row).textContent = "➡️";
 		}
 		if (session.dssu) {
 			$(`[data-name="dssu"]`, $row).textContent = session.dssu;
 		}
 
+		let sendnames = ["dsa", "dsi", "dss"];
 		let eventnames = ["dsa", "dsq", "dsi", "dsf", "dss", "dsc"];
 		for (let i = 1; i < eventnames.length; i += 1) {
 			let curEvent = eventnames[i];
+
+			let isSend = sendnames.includes(curEvent);
+			if (isSend) {
+				continue;
+			}
+
 			/* @type {Date?} */ //@ts-expect-error
 			let curDate = session[curEvent]?.valueOf();
 			if (!curDate) {
@@ -2097,29 +2113,28 @@ import DashP2P from "./dashp2p.js";
 					// );
 				}
 
-				let dsqStatus =
-					networkInfo.coinjoinQueues[dsq.denomination][hostnode.proTxHash];
-				if (!dsqStatus) {
-					dsqStatus = {
-						// node info
-						address: hostnode.address,
-						host: hostnode.address, // deprecated
-						// dsq status
-						protxhash: dsq.protxhash,
-						denomination: dsq.denomination,
-						ready: dsq.ready,
-						timestamp: dsq.timestamp,
-						timestamp_unix: dsq.timestamp_unix,
-						_prevDate: prevDate,
-						_prevMs: prevDate.valueOf(),
-						_date: curDate,
-						_ms: curDate.valueOf(),
-						_reportedBy: {},
-					};
-					networkInfo.coinjoinQueues[dsq.denomination][hostnode.proTxHash] =
-						dsqStatus;
-				}
+				let dsqStatus = {
+					// node info
+					address: hostnode.address,
+					host: hostnode.address, // deprecated
+					// dsq status
+					protxhash: dsq.protxhash,
+					denomination: dsq.denomination,
+					ready: prevDsqStatus?.ready || dsq.ready,
+					timestamp: dsq.timestamp,
+					timestamp_unix: dsq.timestamp_unix,
+					_prevDate: prevDate,
+					_prevMs: prevDate.valueOf(),
+					_date: curDate,
+					_ms: curDate.valueOf(),
+					_reportedBy: prevDsqStatus?.reported_by || {},
+				};
 				dsqStatus._reportedBy[nodeInfo.address] = new Date();
+				if (dsq.ready) {
+					dsqStatus.ready = dsq.ready;
+				}
+				networkInfo.coinjoinQueues[dsq.denomination][hostnode.proTxHash] =
+					dsqStatus;
 
 				let reporters = Object.keys(dsqStatus._reportedBy);
 				console.log(
@@ -2295,7 +2310,7 @@ import DashP2P from "./dashp2p.js";
 	/**
 	 * @param {String} network
 	 * @param {Number} denomination
-	 * @param {ReturnType<typeof DashP2P.create>} p2p
+	 * @param {ReturnType<typeof DashP2P.create>} p2pHost
 	 * @param {Array<FullCoin>} inputs
 	 * @param {Array<import('dashtx').TxOutput>} outputs
 	 * @param {Array<Uint8Array>} collateralTxes
@@ -2304,7 +2319,7 @@ import DashP2P from "./dashp2p.js";
 	async function joinCoinJoinSession(
 		network, // "mainnet"
 		denomination, // 1000010000
-		p2p, // {createSubscriber, send}
+		p2pHost, // {createSubscriber, send}
 		inputs, // [{address, txid, pubKeyHash, ...getPrivateKeyInfo }]
 		outputs, // [{ pubKeyHash, satoshis }]
 		collateralTxes, // (for dsa and dsi) any 2 txes having fees >=0.00010000 more than necessary
@@ -2312,7 +2327,7 @@ import DashP2P from "./dashp2p.js";
 	) {
 		// todo: pick a smaller size that matches the dss
 		let message = new Uint8Array(DashP2P.PAYLOAD_SIZE_MAX);
-		let evstream = p2p.createSubscriber(["dssu", "dsq", "dsf", "dsc"]);
+		let evstream = p2pHost.createSubscriber(["dssu", "dsq", "dsf", "dsc"]);
 		if (!evstream) {
 			throw new Error(
 				"TODO: create separate function call for createSubscriber",
@@ -2330,7 +2345,7 @@ import DashP2P from "./dashp2p.js";
 			};
 			let dsaBytes = DashJoin.packers.dsa(dsa);
 			console.log("➡️ DEBUG dsa, dsaBytes", dsa, dsaBytes);
-			p2p.send(dsaBytes);
+			p2pHost.send(dsaBytes);
 			notify("send", "dsa");
 			for (;;) {
 				let msg = await evstream.once();
@@ -2344,7 +2359,7 @@ import DashP2P from "./dashp2p.js";
 						// TODO switch to the good node
 						continue;
 					}
-					notify("receive", "dsq");
+					notify("receive", "dsq", dsq);
 					break;
 				}
 
@@ -2354,26 +2369,30 @@ import DashP2P from "./dashp2p.js";
 						evstream.close();
 						throw new Error();
 					}
-					notify("receive", "dssu", dssu.state);
+					notify("receive", "dssu", dssu);
 				}
 			}
 		}
 
 		let dsfTxRequest;
 		{
+			/** @type {Uint8Array} */ //@ts-expect-error
 			let collateralTx = collateralTxes.shift();
-			let dsiBytes = DashJoin.packers.dsi({
+			let dsiInfo = {
 				network: network,
 				message: message,
 				inputs: inputs,
 				collateralTx: collateralTx,
 				outputs: outputs,
-			});
-			p2p.send(dsiBytes);
+			};
+			console.log(`DEBUG dsi input`, dsiInfo);
+			let dsiBytes = DashJoin.packers.dsi(dsiInfo);
+			console.log(`DEBUG dsi bytes`, p2pHost._host, p2pHost._network, dsiBytes);
+			p2pHost.send(dsiBytes);
 			notify("send", "dsi");
 
 			let msg = await evstream.once("dsf");
-			notify("receive", "dsf");
+			notify("receive", "dsf", msg);
 
 			console.log("DEBUG dsf %c[[MSG]]", "color: blue", msg);
 			let dsfTxRequest = DashJoin.parsers.dsf(msg.payload);
@@ -2396,7 +2415,7 @@ import DashP2P from "./dashp2p.js";
 				message: message,
 				inputs: signedInputs,
 			});
-			p2p.send(dssBytes);
+			p2pHost.send(dssBytes);
 			notify("send", "dss");
 
 			void (await evstream.once("dsc"));
@@ -2579,12 +2598,11 @@ import DashP2P from "./dashp2p.js";
 			}
 		}
 
-		// /** @type {PeerInfo} cjNodeInfo */
-		// let cjNodeInfo;
 		let p2p = networkInfo.peers[host].connection;
 		/** @type {SessionInfo} */
 		let session = {
 			denomination: denom,
+			address: host,
 			host: host,
 			inputs: inputs,
 			dssu: "",
@@ -2630,10 +2648,10 @@ import DashP2P from "./dashp2p.js";
 			let _matchingDsq = matchingDsq;
 			if (_matchingDsq.ready) {
 				session.dsq = new Date();
-				App._$renderSessions();
 			}
 
 			let nodeInfo = networkInfo.nodesByProTxHash[_matchingDsq.protxhash];
+			console.log(`########## matching nodeInfo`, nodeInfo);
 			let p2pHost = networkInfo.peers[nodeInfo.address]?.connection;
 			if (!p2pHost) {
 				await P2P.connectToNodeRealHard(
@@ -2643,6 +2661,9 @@ import DashP2P from "./dashp2p.js";
 				);
 				p2pHost = networkInfo.peers[nodeInfo.address].connection;
 			}
+			session.address = nodeInfo.address;
+			session.host = nodeInfo.address;
+			App._$renderSessions();
 
 			let joinPromise = joinCoinJoinSession(
 				networkInfo.network,
@@ -2657,9 +2678,9 @@ import DashP2P from "./dashp2p.js";
 				 * @param {any} msg
 				 */
 				function notify(direction, eventname, msg) {
-					console.log("🧨 DEBUG eventname", eventname);
+					console.log("🧨 DEBUG eventname", eventname, msg);
 					if (eventname === "dssu") {
-						session.dssu = msg.status;
+						session.dssu = msg.state || msg.status;
 					} else {
 						//@ts-expect-error
 						session[eventname] = new Date();
