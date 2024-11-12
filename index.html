@@ -11,8 +11,6 @@
 		<script src="./node_modules/dashhd/dashhd.js"></script>
 		<script src="./node_modules/dashtx/dashtx.js"></script>
 		<script src="./node_modules/qrcode-svg/dist/qrcode.min.js"></script>
-		<script src="./dashp2p.js"></script>
-		<script src="./dashjoin.js"></script>
 		<style>
 			nav {
 				margin-bottom: 0.3rem;
@@ -228,6 +226,8 @@
 										<input onchange="App.toggleAll(event)" type="checkbox" />
 									</th>
 									<th>Amount</th>
+									<th>🔄</th>
+									<th>🎯</th>
 									<th>Address</th>
 									<th>TXID</th>
 									<th>Index</th>
@@ -237,6 +237,8 @@
 								<!-- tmpl-balance-row -->
 							</tbody>
 							<tfoot>
+								<th></th>
+								<th></th>
 								<th></th>
 								<th></th>
 								<th></th>
@@ -254,6 +256,8 @@
 									/>
 								</td>
 								<td data-name="amount" style="font-family: monospace"></td>
+								<td data-name="mixes" style="font-family: monospace"></td>
+								<td data-name="target" style="font-family: monospace"></td>
 								<td
 									data-name="address"
 									style="font-family: monospace; font-size: 6pt"
@@ -509,6 +513,76 @@
 						</fieldset>
 					</form>
 				</section>
+
+				<br />
+				<section>
+					<header>
+						<h3>Recent Sessions</h3>
+					</header>
+					<form method="dialog">
+						<table style="font-size: 0.75rem">
+							<thead>
+								<tr>
+									<th>Denom</th>
+									<th>Node</th>
+									<th>Address</th>
+									<th>DSA</th>
+									<th>DSQ</th>
+									<th>DSSU</th>
+									<th>DSI</th>
+									<th>DSF</th>
+									<th>DSS</th>
+									<th>DSC</th>
+								</tr>
+							</thead>
+							<tbody data-id="sessions-table-body">
+								<tr hidden>
+									<!-- Rows will be inserted here -->
+									<td data-name="denomination">1.0000</td>
+									<td
+										data-name="hostname"
+										style="font-family: monospace; font-size: 0.5rem"
+									>
+										52.34.250.214
+									</td>
+									<td
+										data-name="address"
+										style="font-family: monospace; font-size: 0.5rem"
+									>
+										yfYmqmzP7xhFxQPA5uEAqri2Txvd6Nyv1T
+									</td>
+									<td data-name="dsa">➡️</td>
+									<td data-name="dsq">2.4s</td>
+									<td data-name="dsi">➡️</td>
+									<td data-name="dsf">10.3s</td>
+									<td data-name="dss">➡️</td>
+									<td data-name="dsc">15.0s</td>
+									<td data-name="dssu">READY</td>
+								</tr>
+							</tbody>
+						</table>
+						<template data-id="sessions-row-template">
+							<tr>
+								<td data-name="denomination"></td>
+								<td
+									data-name="hostname"
+									style="font-family: monospace; font-size: 0.5rem"
+								></td>
+								<td
+									data-name="address"
+									style="font-family: monospace; font-size: 0.5rem"
+								></td>
+								<td data-name="dsa"></td>
+								<td data-name="dsq"></td>
+								<td data-name="dssu"></td>
+								<td data-name="dsi"></td>
+								<td data-name="dsf"></td>
+								<td data-name="dss"></td>
+								<td data-name="dsc"></td>
+							</tr>
+						</template>
+					</form>
+				</section>
 			</div>
 			<div data-semtab="tools">
 				<section>
@@ -581,7 +655,7 @@ change:    0.00000000 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx        1</code></pre>
 								step="1"
 								min="1"
 								max="6"
-								onchange="window.alert('not implemented yet')"
+								onchange="App.$setMaxConn(this.value)"
 						/></label>
 
 						<table>
@@ -630,10 +704,10 @@ change:    0.00000000 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx        1</code></pre>
 						<thead>
 							<tr>
 								<th>Denomination</th>
-								<th>Pools</th>
+								<th># Hosts</th>
 								<th>Delay</th>
 								<th>Latest At</th>
-								<th>Testnet Pools</th>
+								<th># Testnet Hosts</th>
 								<th>Testnet Delay</th>
 								<th>Testnet Latest</th>
 							</tr>
@@ -980,6 +1054,6 @@ change:    0.00000000 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx        1</code></pre>
 
 			$SemTabs.init();
 		</script>
-		<script src="./wallet-app.js"></script>
+		<script type="module" src="./wallet-app.js"></script>
 	</body>
 </html>
