@@ -587,7 +587,7 @@
 			<div data-semtab="tools">
 				<section>
 					<header>
-						<h3>CoinJoin Nodes</h3>
+						<h3>P2P Nodes</h3>
 					</header>
 					<form method="dialog">
 						<label
@@ -601,6 +601,8 @@
 								max="6"
 								onchange="App.$setMaxConn(this.value)"
 						/></label>
+						Note: these nodes are used to receive P2P broadcasts, including new
+						CoinJoin sessions.
 
 						<table>
 							<thead>
