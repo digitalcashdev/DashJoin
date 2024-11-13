@@ -156,6 +156,7 @@ import DashP2P from "./dashp2p.js";
 	 * @prop {Object.<Hostname, Date>} reportedBy
 	 * @prop {Masternode} hostnode
 	 * @prop {ReturnType<typeof DashJoin.parsers.dsq>} dsq
+	 * @prop {Number} broadcastAt - ms
 	 * @prop {Number} expiresAt - ms
 	 */
 	/** @type {Object.<Number, QueueInfo>} */
@@ -180,8 +181,9 @@ import DashP2P from "./dashp2p.js";
 	 * @prop {Object.<Number, QueueInfo>} coinjoinQueues
 	 * @prop {Object.<String, Masternode>} masternodelist
 	 * @prop {Object.<String, Masternode>} nodesByProTxHash
+	 * @prop {Object.<String, Masternode>} nodesByHost
+	 * @prop {Number} startHeight
 	 * @prop {ChainInfo} _chaininfo
-	 * @prop {Array<MasternodeShort>} _evonodes
 	 * @prop {Object.<String, PeerInfo>} peers
 	 */
 
@@ -200,11 +202,12 @@ import DashP2P from "./dashp2p.js";
 		initialized: false,
 		coinjoinQueues: globalThis.structuredClone(emptyCoinjoinQueues),
 		masternodelist: {},
+		startHeight: 0,
 		_chaininfo: {
 			blocks: 0, // height
 		},
-		_evonodes: [],
 		nodesByProTxHash: {},
+		nodesByHost: {},
 		peers: {},
 	};
 
@@ -215,11 +218,12 @@ import DashP2P from "./dashp2p.js";
 		initialized: false,
 		coinjoinQueues: globalThis.structuredClone(emptyCoinjoinQueues),
 		masternodelist: {},
+		startHeight: 0,
 		_chaininfo: {
 			blocks: 0, // height
 		},
-		_evonodes: [],
 		nodesByProTxHash: {},
+		nodesByHost: {},
 		peers: {},
 	};
 
@@ -1178,12 +1182,11 @@ import DashP2P from "./dashp2p.js";
 		}
 		if (!networkInfo.initialized) {
 			networkInfo.masternodelist = await App.rpc("masternodelist");
-			networkInfo._chaininfo = await App.rpc("getblockchaininfo");
-			networkInfo._evonodes = DashJoin.utils._evonodeMapToList(
-				networkInfo.masternodelist,
-			);
 			networkInfo.initialized = true;
 		}
+		// TODO throttle this / get block height from 'inv'
+		networkInfo._chaininfo = await App.rpc("getblockchaininfo");
+		networkInfo.startHeight = networkInfo._chaininfo.blocks;
 
 		let nodeIds = Object.keys(networkInfo.masternodelist);
 		for (let nodeId of nodeIds) {
@@ -1193,48 +1196,52 @@ import DashP2P from "./dashp2p.js";
 				},
 				networkInfo.masternodelist[nodeId],
 			);
+			if (nodeInfo.status !== "ENABLED") {
+				continue;
+			}
+
 			nodeInfo.host = nodeInfo.address;
 			networkInfo.nodesByProTxHash[nodeInfo.proTxHash] = nodeInfo;
+			networkInfo.nodesByHost[nodeInfo.address] = nodeInfo;
 		}
-		console.log(
-			`DEBUG ${networkInfo.network} evonodes (raw, as map)`,
-			networkInfo.nodesByProTxHash,
-		);
+		console.info(`${networkInfo.network} nodes (raw), by host and proTxHash`);
+		console.info(networkInfo.nodesByHost);
+		console.info(networkInfo.nodesByProTxHash);
 
+		// connect up to max
 		for (;;) {
-			let hostnames = Object.keys(networkInfo.peers);
-			if (hostnames.length >= networkInfo.maxConns) {
+			let nodes = Object.values(networkInfo.peers);
+			if (nodes.length >= networkInfo.maxConns) {
 				break;
 			}
 
-			let rnd = Math.random();
-			let index = Math.floor(rnd * networkInfo._evonodes.length);
-			let evonode = networkInfo._evonodes[index];
-			// { host, hostname, port }
+			let hosts = Object.keys(networkInfo.nodesByHost);
+			void knuthShuffle(hosts);
+			let host = hosts[0];
+			let nodeInfo = networkInfo.nodesByHost[host];
 
-			// networkInfo.peers[evonode.host].connection.close();
-
-			console.info("[info] chosen evonode:", evonode.address);
-			void (await P2P.connectToPeer(
-				evonode,
+			console.info("[info] chosen node:", nodeInfo.address);
+			void (await P2P.connectRealHard(
+				nodeInfo,
 				networkInfo._chaininfo.blocks,
 			).catch(onConnError));
 		}
 
+		// disconnect if beyond max
 		for (;;) {
-			let hostnames = Object.keys(networkInfo.peers);
-			if (hostnames.length <= networkInfo.maxConns) {
+			let hosts = Object.keys(networkInfo.peers);
+			if (hosts.length <= networkInfo.maxConns) {
 				break;
 			}
 
-			let hostname = hostnames.shift() || "";
-			let nodeInfo = networkInfo.peers[hostname];
+			let host = hosts.shift() || "";
+			let nodeInfo = networkInfo.peers[host];
 			console.log(
-				`DEBUG host '${hostname}' '${hostnames}'`,
+				`DEBUG host '${host}' '${hosts}'`,
 				nodeInfo,
 				networkInfo.peers,
 			);
-			delete networkInfo.peers[hostname];
+			delete networkInfo.peers[host];
 			nodeInfo.connection?.close();
 		}
 
@@ -1261,7 +1268,7 @@ import DashP2P from "./dashp2p.js";
 				let $nodeRow = document.importNode($nodeTmpl, true);
 
 				let connInfo = networkInfo.peers[host];
-				let hostInfo = networkInfo.peers[host].node;
+				let nodeInfo = networkInfo.peers[host].node;
 				let day = connInfo.connectedAt.toLocaleDateString();
 				let time = connInfo.connectedAt.toLocaleTimeString();
 				let connectedAt = time;
@@ -1269,9 +1276,8 @@ import DashP2P from "./dashp2p.js";
 					connectedAt = day;
 				}
 				$(`[data-name="network"]`, $nodeRow).textContent = networkInfo.network;
-				$(`[data-name="hostname"]`, $nodeRow).textContent = hostInfo.hostname;
-				$(`[data-name="port"]`, $nodeRow).textContent = hostInfo.port;
-				$(`[data-name="type"]`, $nodeRow).textContent = hostInfo.type;
+				$(`[data-name="host"]`, $nodeRow).textContent = nodeInfo.address;
+				$(`[data-name="type"]`, $nodeRow).textContent = nodeInfo.type;
 				$(`[data-name="connected-at"]`, $nodeRow).textContent = connectedAt;
 
 				let latestTime = connInfo.latestAt.toLocaleTimeString();
@@ -1282,8 +1288,11 @@ import DashP2P from "./dashp2p.js";
 		}
 
 		requestAnimationFrame(function () {
-			$renderNodesList(`[data-id="mainnet-nodes"]`, App.mainnet._evonodes);
-			$renderNodesList(`[data-id="testnet-nodes"]`, App.testnet._evonodes);
+			let mainNodes = Object.values(App.mainnet.nodesByHost);
+			$renderNodesList(`[data-id="mainnet-nodes"]`, mainNodes);
+
+			let testNodes = Object.values(App.testnet.nodesByHost);
+			$renderNodesList(`[data-id="testnet-nodes"]`, testNodes);
 
 			$nodesTable.replaceChildren($nodeRows);
 		});
@@ -1312,23 +1321,27 @@ import DashP2P from "./dashp2p.js";
 					let expired = now >= queueInfo.expiresAt;
 					let shouldSkip = queueInfo.broadcastAt && expired;
 					if (shouldSkip) {
-						continue;
+						break;
 					}
 
-					queueInfos.push(queueInfo);
+					queueInfos.unshift(queueInfo);
 				}
 
 				if (!queueInfos.length) {
-					queueInfos.push({
-						reportedBy: {},
-						//@ts-expect-error
-						hostnode: { address: "-" },
-						broadcastAt: 0,
-						expiresAt: 0,
-						//@ts-expect-error
-						dsq: { denomination: denom },
-					});
+					let $denomClone = $denomTmpl.cloneNode(true);
+					/** @type {HTMLElement} */ //@ts-expect-error
+					let $row = document.importNode($denomClone, true);
+
+					$(`[data-name="network"]`, $row).textContent = networkInfo.network;
+					$(`[data-name="denomination"]`, $row).textContent = denom.toString();
+					$(`[data-name="host"]`, $row).textContent = "-";
+					$(`[data-name="reports"]`, $row).textContent = "-";
+					$(`[data-name="broadcast-at"]`, $row).textContent = "-";
+					$(`[data-name="expires-at"]`, $row).textContent = "-";
+
+					$denomRows.appendChild($row);
 				}
+
 				for (let queueInfo of queueInfos) {
 					let $denomClone = $denomTmpl.cloneNode(true);
 					/** @type {HTMLElement} */ //@ts-expect-error
@@ -1340,23 +1353,16 @@ import DashP2P from "./dashp2p.js";
 						queueInfo.hostnode.address;
 
 					let reports = Object.keys(queueInfo.reportedBy);
-					let numReports = "-";
-					if (reports.length) {
-						numReports = reports.length.toString();
-					}
-					$(`[data-name="reports"]`, $row).textContent = numReports;
+					$(`[data-name="reports"]`, $row).textContent =
+						reports.length.toString();
 
-					let broadcastAt = "-";
-					let expiresAt = "-";
-					if (queueInfo.broadcastAt) {
-						let broadcastDate = new Date(queueInfo.broadcastAt);
-						broadcastAt = broadcastDate.toLocaleTimeString();
+					let broadcastDate = new Date(queueInfo.broadcastAt);
+					$(`[data-name="broadcast-at"]`, $row).textContent =
+						broadcastDate.toLocaleTimeString();
 
-						let expiresDate = new Date(queueInfo.broadcastAt);
-						expiresAt = expiresDate.toLocaleTimeString();
-					}
-					$(`[data-name="broadcast-at"]`, $row).textContent = broadcastAt;
-					$(`[data-name="expires-at"]`, $row).textContent = expiresAt;
+					let expiresDate = new Date(queueInfo.broadcastAt);
+					$(`[data-name="expires-at"]`, $row).textContent =
+						expiresDate.toLocaleTimeString();
 
 					$denomRows.appendChild($row);
 				}
@@ -1375,13 +1381,8 @@ import DashP2P from "./dashp2p.js";
 	 * @returns {Number}
 	 */
 	function sortByTimestamp(a, b) {
-		let dateA = new Date(a.dsq.timestamp);
-		let msA = dateA.valueOf();
-
-		let dateB = new Date(a.dsq.timestamp);
-		let msB = dateB.valueOf();
-
-		return msA - msB;
+		let result = a.broadcastAt - b.broadcastAt;
+		return result;
 	}
 
 	App._$renderSessions = function () {
@@ -1389,6 +1390,7 @@ import DashP2P from "./dashp2p.js";
 
 		requestAnimationFrame(function () {
 			for (let session of sessions) {
+				console.log(`DEBUG update session`, session);
 				App._$renderSession(session);
 			}
 		});
@@ -1460,13 +1462,13 @@ import DashP2P from "./dashp2p.js";
 			let deltaS = deltaMs / 1000;
 			let delta = deltaS.toFixed(2);
 
-			$(`[data-name="${curEvent}"]`, $row).textContent = delta;
+			$(`[data-name="${curEvent}"]`, $row).textContent = `${delta}s`;
 		}
 	};
 
 	/**
 	 * @param {String} sel
-	 * @param {Array<MasternodeShort>} nodes
+	 * @param {Array<Masternode>} nodes
 	 */
 	function $renderNodesList(sel, nodes) {
 		let oldList = $(sel).textContent;
@@ -1475,7 +1477,7 @@ import DashP2P from "./dashp2p.js";
 		for (let node of nodes) {
 			// console.log(`DEBUG mnshort`, node);
 			// '107.170.254.160:9999'.length
-			let host = node.host.padStart(20, " ");
+			let host = node.address.padStart(20, " ");
 			let line = `${host} ${node.type}`;
 			rows.push(line);
 		}
@@ -2025,7 +2027,7 @@ import DashP2P from "./dashp2p.js";
 	 * @param {MasternodeShort} nodeInfo
 	 * @param {Number} height
 	 */
-	P2P.connectToPeer = async function (nodeInfo, height) {
+	P2P.connect = async function (nodeInfo, height) {
 		let networkInfo = App.mainnet;
 		if (App.network !== MAINNET) {
 			networkInfo = App.testnet;
@@ -2033,6 +2035,7 @@ import DashP2P from "./dashp2p.js";
 
 		let host = nodeInfo.address || nodeInfo.host;
 		if (networkInfo.peers[host]) {
+			console.log(`[exists] P2P.connect`, host, networkInfo.peers[host]);
 			return;
 		}
 
@@ -2136,7 +2139,7 @@ import DashP2P from "./dashp2p.js";
 					reporters.length,
 				);
 
-				networkInfo.peers[nodeInfo.address].latestAt = new Date();
+				networkInfo.peers[host].latestAt = new Date();
 
 				void App._$renderNodeList();
 				void App._$renderPoolList();
@@ -2148,24 +2151,26 @@ import DashP2P from "./dashp2p.js";
 		 */
 		function cleanup(err) {
 			console.error("[cj ws cleanup]:", err);
-			delete networkInfo.peers[nodeInfo.address];
+			delete networkInfo.peers[host];
 			for (let denom of DashJoin.DENOMS) {
 				delete networkInfo.coinjoinQueues[denom][nodeInfo.proTxHash];
 			}
 			p2p.close();
 		}
+
 		//@ts-expect-error
 		wsc.addEventListener("error", cleanup);
 		//@ts-expect-error
 		wsc.addEventListener("close", cleanup);
 
 		let d = new Date();
-		networkInfo.peers[nodeInfo.address] = {
+		networkInfo.peers[host] = {
 			connection: p2p,
 			connectedAt: d,
 			latestAt: d,
 			node: nodeInfo,
 		};
+		console.log(`P2P $$$$$$ connect [post]`, host, networkInfo.peers[host]);
 	};
 
 	/**
@@ -2173,24 +2178,24 @@ import DashP2P from "./dashp2p.js";
 	 * @param {Number} height
 	 * @param {Number} [maxAttempts=10]
 	 */
-	P2P.connectToNodeRealHard = async function (
-		nodeInfo,
-		height,
-		maxAttempts = 15,
-	) {
+	P2P.connectRealHard = async function (nodeInfo, height, maxAttempts = 15) {
 		let count = 0;
 		for (;;) {
 			try {
-				await P2P.connectToPeer(nodeInfo, height);
+				console.log(`P2P $$$$$$ connect [pre]`, count);
+				await P2P.connect(nodeInfo, height);
+				console.log(`P2P $$$$$$ connect [post]`);
 			} catch (e) {
 				if (count > maxAttempts) {
 					throw new Error(`can't connect to node ${nodeInfo.address}`);
 				}
+				count += 1;
+				await sleep(250);
 				continue;
 			}
-			count += 1;
-			await sleep(250);
+			break;
 		}
+		console.log(`P2P $$$$$$ connectRealHard [return]`);
 	};
 
 	// TODO close all peers
@@ -2205,73 +2210,67 @@ import DashP2P from "./dashp2p.js";
 	// 6. 'dssu' updates status
 	//      + 'dsc' confirms the tx will broadcast soon
 
+	let CJ = {};
 	/**
 	 * @param {String} network
 	 * @param {Number} denomination
-	 * @param {ReturnType<typeof DashP2P.create>} p2p
-	 * @param {Array<FullCoin>} inputs
-	 * @param {Array<import('dashtx').TxOutput>} outputs
-	 * @param {Array<Uint8Array>} collateralTxes
+	 * @param {Number} [now]
 	 */
-	async function requestCoinJoinSession(
+	CJ.connectToBestNode = async function (
 		network,
 		denomination,
-		p2p,
-		inputs,
-		outputs,
-		collateralTxes,
+		now = Date.now(),
 	) {
-		assertDenomination(denomination, inputs, outputs);
+		console.log(`COINJOIN %%%%%% connectToBestNode 1`);
+		let networkInfo = App.mainnet;
+		if (network !== MAINNET) {
+			networkInfo = App.testnet;
+		}
 
-		// todo: pick a smaller size that matches the dss
-		let message = new Uint8Array(DashP2P.PAYLOAD_SIZE_MAX);
-		let evstream = p2p.createSubscriber(["dssu", "dsq", "dsf", "dsc"]);
-		if (!evstream) {
-			throw new Error(
-				"TODO: create separate function call for createSubscriber",
+		console.log(`COINJOIN %%%%%% connectToBestNode 2`);
+		let queueInfos = Object.values(networkInfo.coinjoinQueues[denomination]);
+		queueInfos.sort(sortByTimestamp);
+
+		/** @type {QueueInfo?} */
+		let queueInfo = queueInfos[0];
+		if (queueInfo) {
+			console.log(`COINJOIN %%%%%% connectToBestNode 3b`);
+			let expired = now >= queueInfo.expiresAt;
+			let shouldSkip = queueInfo.broadcastAt && expired;
+			if (shouldSkip) {
+				queueInfo = null;
+			}
+		}
+
+		console.log(`COINJOIN %%%%%% connectToBestNode 4`);
+		let host = queueInfo?.hostnode?.address;
+		if (!host) {
+			console.log(`COINJOIN %%%%%% connectToBestNode 4b`);
+			let hosts = Object.keys(networkInfo.nodesByHost);
+			void knuthShuffle(hosts);
+			host = hosts[0];
+		}
+
+		console.log(`COINJOIN %%%%%% connectToBestNode 5`, host);
+		let p2pHost = networkInfo.peers[host]?.connection;
+		if (!p2pHost) {
+			console.log(
+				`COINJOIN %%%%%% connectToBestNode 5b`,
+				host,
+				networkInfo.nodesByHost[host],
 			);
+			void (await P2P.connectRealHard(
+				networkInfo.nodesByHost[host],
+				networkInfo._chaininfo.blocks,
+				10,
+			));
+			// networkInfo.peers[host]
+			p2pHost = networkInfo.peers[host].connection;
 		}
 
-		/** @type {Uint8Array} */
-		let collateralTx = collateralTxes[0]; // to be reused
-		let dsa = {
-			network: network,
-			message: message,
-			denomination: denomination,
-			collateralTx: collateralTx,
-		};
-		let dsaBytes = DashJoin.packers.dsa(dsa);
-		p2p.send(dsaBytes);
-
-		for (;;) {
-			// TODO Promise.race(timeout)
-			// if (!msg) { throw new Error('timeout') }
-			let msg = await evstream.once();
-
-			if (msg.command === "dsq") {
-				let dsq = DashJoin.parsers.dsq(msg.payload);
-				if (dsq.denomination !== denomination) {
-					continue;
-				}
-
-				// TODO
-				// is there a possibility that it could both tell me about
-				// another pool to join and then also accept me into its pool?
-
-				return dsq; // { ready, protxhash}
-			}
-
-			if (msg.command === "dssu") {
-				let dssu = DashJoin.parsers.dssu(msg.payload);
-				if (dssu.state === "ERROR") {
-					evstream.close();
-					break;
-				}
-			}
-		}
-
-		throw new Error(`dssu status is 'ERROR'`);
-	}
+		console.log(`COINJOIN %%%%%% connectToBestNode 6`);
+		return p2pHost;
+	};
 
 	/**
 	 * @param {Number} denomination
@@ -2307,7 +2306,7 @@ import DashP2P from "./dashp2p.js";
 	 * @param {Array<Uint8Array>} collateralTxes
 	 * @param {Function} notify
 	 */
-	async function joinCoinJoinSession(
+	CJ.joinSession = async function (
 		network, // "mainnet"
 		denomination, // 1000010000
 		p2pHost, // {createSubscriber, send}
@@ -2318,6 +2317,23 @@ import DashP2P from "./dashp2p.js";
 	) {
 		// todo: pick a smaller size that matches the dss
 		let message = new Uint8Array(DashP2P.PAYLOAD_SIZE_MAX);
+
+		void p2pHost.createSubscriber(
+			["dssu"],
+			/**
+			 * @param {any} evstream
+			 */
+			async function (evstream) {
+				let msg = await evstream.once("dssu");
+				let dssu = DashJoin.parsers.dssu(msg.payload);
+				if (dssu.state === "ERROR") {
+					evstream.close();
+					throw new Error();
+				}
+				notify("receive", "dssu", dssu);
+			},
+		);
+
 		let evstream = p2pHost.createSubscriber(["dssu", "dsq", "dsf", "dsc"]);
 		if (!evstream) {
 			throw new Error(
@@ -2414,7 +2430,7 @@ import DashP2P from "./dashp2p.js";
 		}
 
 		return dsfTxRequest;
-	}
+	};
 
 	/**
 	 * @param {import('dashtx').TxSummary} txRequest
@@ -2563,6 +2579,8 @@ import DashP2P from "./dashp2p.js";
 			outputs.push(output);
 		}
 
+		assertDenomination(denom, inputs, outputs);
+
 		let collateralTxes = [
 			await App._signCollateral(DashJoin.MIN_COLLATERAL),
 			await App._signCollateral(DashJoin.MIN_COLLATERAL),
@@ -2573,28 +2591,17 @@ import DashP2P from "./dashp2p.js";
 			networkInfo = App.testnet;
 		}
 
-		let hosts = Object.keys(networkInfo.peers);
-		void knuthShuffle(hosts);
+		/** @type {ReturnType<typeof DashP2P.create>} */ //@ts-expect-error
+		let p2pHost = null;
+		let host = "";
+		let firstAddress = inputs[0]?.address || "";
+		let sessionId = "";
 
-		/** @type {String} */
-		let host;
-		for (;;) {
-			let _host = hosts.shift();
-			if (!_host) {
-				throw new Error(`all available connections are currently mixing`);
-			}
-			if (!App.sessions[_host]) {
-				host = _host;
-				break;
-			}
-		}
-
-		let p2p = networkInfo.peers[host].connection;
 		/** @type {SessionInfo} */
 		let session = {
 			denomination: denom,
-			address: host,
-			host: host,
+			address: "",
+			host: "",
 			inputs: inputs,
 			dssu: "",
 			dsa: new Date(),
@@ -2604,81 +2611,67 @@ import DashP2P from "./dashp2p.js";
 			dss: new Date(0),
 			dsc: new Date(0),
 		};
-		try {
-			App.sessions[host] = session;
+		/**
+		 * @param {String} direction
+		 * @param {String} eventname
+		 * @param {any} msg
+		 */
+		function notify(direction, eventname, msg) {
+			console.log("🧨 DEBUG eventname", eventname, msg);
+			if (eventname === "dssu") {
+				session.dssu = msg.state || msg.status;
+			} else {
+				//@ts-expect-error
+				session[eventname] = new Date();
+			}
 
+			App._$renderSessions();
+		}
+
+		try {
 			let minute = 60 * 1000;
 			let timeout = 5 * minute;
 
-			session.dsa = new Date();
-			App._$renderSessions();
-
-			/** @type {ReturnType<typeof DashJoin.parsers.dsq>?} */
-			let matchingDsq = null;
 			let denomination = inputs[0].satoshis;
-			let dsqPromise = requestCoinJoinSession(
+			/** @type {ReturnType<typeof DashP2P.create>?} */
+			let _p2pHost = null;
+			console.log(`COINJOIN %%%%%% connectToBestNode [pre]`);
+			let p2pPromise = CJ.connectToBestNode(
 				networkInfo.network,
 				denomination,
-				p2p,
-				inputs,
-				outputs,
-				collateralTxes,
-			).then(function (dsq) {
-				matchingDsq = dsq;
+			).then(function (p2pHost) {
+				_p2pHost = p2pHost;
 			});
 			let dsqTimeout = sleep(timeout).then(function () {
-				if (!matchingDsq) {
+				if (!_p2pHost) {
 					session.dssu = "(timeout)";
 				}
 			});
-			await Promise.race([dsqPromise, dsqTimeout]);
-			if (!matchingDsq) {
+			await Promise.race([p2pPromise, dsqTimeout]);
+			console.log(`COINJOIN %%%%%% connectToBestNode [post]`, _p2pHost);
+			if (!_p2pHost) {
 				return;
 			}
-			/** @type {ReturnType<typeof DashJoin.parsers.dsq>} */
-			let _matchingDsq = matchingDsq;
-			if (_matchingDsq.ready) {
-				session.dsq = new Date();
-			}
+			/** @type {ReturnType<typeof DashP2P.create>} */
+			p2pHost = _p2pHost;
 
-			let nodeInfo = networkInfo.nodesByProTxHash[_matchingDsq.protxhash];
-			console.log(`########## matching nodeInfo`, nodeInfo);
-			let p2pHost = networkInfo.peers[nodeInfo.address]?.connection;
-			if (!p2pHost) {
-				await P2P.connectToNodeRealHard(
-					nodeInfo,
-					networkInfo._chaininfo.blocks,
-					10,
-				);
-				p2pHost = networkInfo.peers[nodeInfo.address].connection;
-			}
-			session.address = nodeInfo.address;
-			session.host = nodeInfo.address;
+			host = p2pHost._host;
+			session.address = host;
+			session.host = host;
+
+			sessionId = `${host}${firstAddress}`;
+			App.sessions[sessionId] = session;
 			App._$renderSessions();
 
-			let joinPromise = joinCoinJoinSession(
+			console.log(`COINJOIN %%% joinSession`, session, p2pHost);
+			let joinPromise = CJ.joinSession(
 				networkInfo.network,
 				denomination,
 				p2pHost,
 				inputs,
 				outputs,
 				collateralTxes,
-				/**
-				 * @param {String} direction
-				 * @param {String} eventname
-				 * @param {any} msg
-				 */
-				function notify(direction, eventname, msg) {
-					console.log("🧨 DEBUG eventname", eventname, msg);
-					if (eventname === "dssu") {
-						session.dssu = msg.state || msg.status;
-					} else {
-						//@ts-expect-error
-						session[eventname] = new Date();
-					}
-
-					App._$renderSessions();
-				},
+				notify,
 			);
 			let joinTimeout = sleep(timeout).then(function () {
 				if (!session.dsc) {
@@ -2691,11 +2684,13 @@ import DashP2P from "./dashp2p.js";
 			session.dssu = "(error)";
 			throw e;
 		} finally {
-			App._$renderSessions();
-			if (p2p) {
-				p2p.close();
-			}
-			delete App.sessions[host];
+			setTimeout(function () {
+				if (p2pHost) {
+					p2pHost.close();
+				}
+				App._$renderSessions();
+				delete App.sessions[sessionId];
+			}, 250);
 			//await App.initP2p();
 		}
 	};
