@@ -151,7 +151,14 @@ import DashP2P from "./dashp2p.js";
 	 * @prop {Hex} pubKeyHash
 	 */
 
-	/** @type {Object.<Number, NodeStat>} */
+	/**
+	 * @typedef QueueInfo
+	 * @prop {Object.<Hostname, Date>} reportedBy
+	 * @prop {Masternode} hostnode
+	 * @prop {ReturnType<typeof DashJoin.parsers.dsq>} dsq
+	 * @prop {Number} expiresAt - ms
+	 */
+	/** @type {Object.<Number, QueueInfo>} */
 	let emptyCoinjoinQueues = {
 		100001: {}, //      0.00100001
 		1000010: {}, //     0.01000010
@@ -170,7 +177,7 @@ import DashP2P from "./dashp2p.js";
 	 * @prop {String} network
 	 * @prop {Number} maxConns
 	 * @prop {Boolean} initialized
-	 * @prop {Object.<Number, NodeStat>} coinjoinQueues
+	 * @prop {Object.<Number, QueueInfo>} coinjoinQueues
 	 * @prop {Object.<String, Masternode>} masternodelist
 	 * @prop {Object.<String, Masternode>} nodesByProTxHash
 	 * @prop {ChainInfo} _chaininfo
@@ -1231,7 +1238,8 @@ import DashP2P from "./dashp2p.js";
 			nodeInfo.connection?.close();
 		}
 
-		void App._$renderPoolInfo();
+		void App._$renderNodeList();
+		void App._$renderPoolList();
 	};
 
 	/** @param {Error} err */
@@ -1239,88 +1247,18 @@ import DashP2P from "./dashp2p.js";
 		console.error(`[onConnError]`, err);
 	}
 
-	App._$renderPoolInfo = function () {
-		/**
-		 * @typedef QueueStat
-		 * @prop {Number} count
-		 * @prop {Number} delay
-		 * @prop {Number} at
-		 */
-
-		/**
-		 * @typedef QueueStats
-		 * @prop {Object.<Number, QueueStat>} mainnet
-		 * @prop {Object.<Number, QueueStat>} testnet
-		 */
-
-		/** @type {QueueStats} */
-		let queueStats = {
-			mainnet: {
-				1000010000: { count: 0, delay: 0, at: 0 },
-				100001000: { count: 0, delay: 0, at: 0 },
-				10000100: { count: 0, delay: 0, at: 0 },
-				1000010: { count: 0, delay: 0, at: 0 },
-				100001: { count: 0, delay: 0, at: 0 },
-			},
-			testnet: {
-				1000010000: { count: 0, delay: 0, at: 0 },
-				100001000: { count: 0, delay: 0, at: 0 },
-				10000100: { count: 0, delay: 0, at: 0 },
-				1000010: { count: 0, delay: 0, at: 0 },
-				100001: { count: 0, delay: 0, at: 0 },
-			},
-		};
-
+	App._$renderNodeList = function () {
 		let d = new Date();
-		let now = d.valueOf();
 		let today = d.toLocaleDateString();
-
-		let template = $(`[data-id="connection-row-template"]`).content;
-		let tableBody = $(`[data-id="connections-table-body"]`);
-		let $denomsTable = $(`[data-id="denominations-table-body"]`);
-
-		let $rows = document.createDocumentFragment();
 		let networks = [App.mainnet, App.testnet];
+
+		let $nodesTable = $(`[data-id="connections-table-body"]`);
+		let $nodeRows = document.createDocumentFragment();
+		let $nodeTmpl = $(`[data-id="connection-row-template"]`).content;
 		for (let networkInfo of networks) {
-			let stats = queueStats.mainnet;
-			if (networkInfo.network !== "mainnet") {
-				stats = queueStats.testnet;
-			}
-
-			for (let denom of DashJoin.DENOMS) {
-				let stat = stats[denom];
-				stat.count = 0;
-
-				let cjQueue = networkInfo.coinjoinQueues[denom];
-
-				let queues = Object.values(cjQueue);
-				for (let dsqStatus of queues) {
-					let isTooLate = dsqStatus.ready;
-					if (isTooLate) {
-						continue;
-					}
-
-					if (dsqStatus._prevMs) {
-						let delay = dsqStatus._ms - dsqStatus._prevMs;
-						delay = delay / 1000;
-						delay = Math.round(delay);
-						stat.delay = delay;
-					}
-					stat.at = dsqStatus._ms;
-
-					let staleTime = 15000; // TODO what's a good number for this?
-					let age = now - stat.at;
-					if (age > staleTime) {
-						continue;
-					}
-
-					stat.count += 1;
-				}
-			}
-
 			let hosts = Object.keys(networkInfo.peers);
 			for (let host of hosts) {
-				let $row = document.importNode(template, true);
+				let $nodeRow = document.importNode($nodeTmpl, true);
 
 				let connInfo = networkInfo.peers[host];
 				let hostInfo = networkInfo.peers[host].node;
@@ -1330,16 +1268,16 @@ import DashP2P from "./dashp2p.js";
 				if (day !== today) {
 					connectedAt = day;
 				}
-				$(`[data-name="network"]`, $row).textContent = networkInfo.network;
-				$(`[data-name="hostname"]`, $row).textContent = hostInfo.hostname;
-				$(`[data-name="port"]`, $row).textContent = hostInfo.port;
-				$(`[data-name="type"]`, $row).textContent = hostInfo.type;
-				$(`[data-name="connected-at"]`, $row).textContent = connectedAt;
+				$(`[data-name="network"]`, $nodeRow).textContent = networkInfo.network;
+				$(`[data-name="hostname"]`, $nodeRow).textContent = hostInfo.hostname;
+				$(`[data-name="port"]`, $nodeRow).textContent = hostInfo.port;
+				$(`[data-name="type"]`, $nodeRow).textContent = hostInfo.type;
+				$(`[data-name="connected-at"]`, $nodeRow).textContent = connectedAt;
 
 				let latestTime = connInfo.latestAt.toLocaleTimeString();
-				$(`[data-name="last-message-at"]`, $row).textContent = latestTime;
+				$(`[data-name="last-message-at"]`, $nodeRow).textContent = latestTime;
 
-				$rows.appendChild($row);
+				$nodeRows.appendChild($nodeRow);
 			}
 		}
 
@@ -1347,40 +1285,104 @@ import DashP2P from "./dashp2p.js";
 			$renderNodesList(`[data-id="mainnet-nodes"]`, App.mainnet._evonodes);
 			$renderNodesList(`[data-id="testnet-nodes"]`, App.testnet._evonodes);
 
-			for (let _denom of DashJoin.DENOMS) {
-				let denom = _denom.toString();
-				let $denomRow = $(`[data-id="denom-${denom}"]`, $denomsTable);
-
-				let mainnetStat = queueStats.mainnet[denom];
-				$(`[data-name="mainnet-pools"]`, $denomRow).textContent =
-					mainnetStat.count;
-				if (mainnetStat.delay) {
-					$(`[data-name="mainnet-delay"]`, $denomRow).textContent =
-						`${mainnetStat.delay}s`;
-				}
-				if (mainnetStat.at) {
-					let latestDate = new Date(mainnetStat.at);
-					$(`[data-name="mainnet-at"]`, $denomRow).textContent =
-						latestDate.toLocaleTimeString();
-				}
-
-				let testnetStat = queueStats.testnet[denom];
-				$(`[data-name="testnet-pools"]`, $denomRow).textContent =
-					testnetStat.count;
-				if (testnetStat.delay) {
-					$(`[data-name="testnet-delay"]`, $denomRow).textContent =
-						`${testnetStat.delay}s`;
-				}
-				if (testnetStat.at) {
-					let latestDate = new Date(testnetStat.at);
-					$(`[data-name="testnet-at"]`, $denomRow).textContent =
-						latestDate.toLocaleTimeString();
-				}
-			}
-
-			tableBody.replaceChildren($rows);
+			$nodesTable.replaceChildren($nodeRows);
 		});
 	};
+
+	App._$renderPoolList = function () {
+		let d = new Date();
+		let now = d.valueOf();
+		let networks = [App.mainnet, App.testnet];
+
+		let $denomsTable = $(`[data-id="denominations-table-body"]`);
+		let $denomRows = document.createDocumentFragment();
+		let $denomTmpl = $(`[data-id="denominations-row-template"]`).content;
+		let denoms = DashJoin.DENOMS.slice();
+		denoms.reverse();
+		for (let networkInfo of networks) {
+			for (let denom of denoms) {
+				let cjQueue = networkInfo.coinjoinQueues[denom];
+
+				let allQueueInfos = Object.values(cjQueue);
+				allQueueInfos.sort(sortByTimestamp);
+
+				/** @type {Array<QueueInfo>} */
+				let queueInfos = [];
+				for (let queueInfo of allQueueInfos) {
+					let expired = now >= queueInfo.expiresAt;
+					let shouldSkip = queueInfo.broadcastAt && expired;
+					if (shouldSkip) {
+						continue;
+					}
+
+					queueInfos.push(queueInfo);
+				}
+
+				if (!queueInfos.length) {
+					queueInfos.push({
+						reportedBy: {},
+						//@ts-expect-error
+						hostnode: { address: "-" },
+						broadcastAt: 0,
+						expiresAt: 0,
+						//@ts-expect-error
+						dsq: { denomination: denom },
+					});
+				}
+				for (let queueInfo of queueInfos) {
+					let $denomClone = $denomTmpl.cloneNode(true);
+					/** @type {HTMLElement} */ //@ts-expect-error
+					let $row = document.importNode($denomClone, true);
+
+					$(`[data-name="network"]`, $row).textContent = networkInfo.network;
+					$(`[data-name="denomination"]`, $row).textContent = denom.toString();
+					$(`[data-name="host"]`, $row).textContent =
+						queueInfo.hostnode.address;
+
+					let reports = Object.keys(queueInfo.reportedBy);
+					let numReports = "-";
+					if (reports.length) {
+						numReports = reports.length.toString();
+					}
+					$(`[data-name="reports"]`, $row).textContent = numReports;
+
+					let broadcastAt = "-";
+					let expiresAt = "-";
+					if (queueInfo.broadcastAt) {
+						let broadcastDate = new Date(queueInfo.broadcastAt);
+						broadcastAt = broadcastDate.toLocaleTimeString();
+
+						let expiresDate = new Date(queueInfo.broadcastAt);
+						expiresAt = expiresDate.toLocaleTimeString();
+					}
+					$(`[data-name="broadcast-at"]`, $row).textContent = broadcastAt;
+					$(`[data-name="expires-at"]`, $row).textContent = expiresAt;
+
+					$denomRows.appendChild($row);
+				}
+			}
+		}
+
+		requestAnimationFrame(function () {
+			$denomsTable.replaceChildren($denomRows);
+		});
+	};
+
+	/**
+	 * Sorts two objects by a date property.
+	 * @param {QueueInfo} a
+	 * @param {QueueInfo} b
+	 * @returns {Number}
+	 */
+	function sortByTimestamp(a, b) {
+		let dateA = new Date(a.dsq.timestamp);
+		let msA = dateA.valueOf();
+
+		let dateB = new Date(a.dsq.timestamp);
+		let msB = dateB.valueOf();
+
+		return msA - msB;
+	}
 
 	App._$renderSessions = function () {
 		let sessions = Object.values(App.sessions);
@@ -1398,7 +1400,7 @@ import DashP2P from "./dashp2p.js";
 	App._$renderSession = function (session) {
 		let firstAddress = session.inputs[0]?.address || "";
 
-		let tableBody = $('[data-id="sessions-table-body"]');
+		let $sessionsTable = $('[data-id="sessions-table-body"]');
 		/** @type {HTMLOmniElement?} */
 		let $row = document.body.querySelector(
 			`[data-row="${session.host}_${firstAddress}"]`,
@@ -1406,14 +1408,14 @@ import DashP2P from "./dashp2p.js";
 
 		if (!$row) {
 			/** @type {HTMLElement} */ //@ts-expect-error
-			let template = $('[data-id="sessions-row-template"]').content.cloneNode(
+			let $sessTmpl = $('[data-id="sessions-row-template"]').content.cloneNode(
 				true,
 			);
-			$row = $("tr", template);
+			$row = $("tr", $sessTmpl);
 			$row.dataset.row = `${session.host}_${firstAddress}`;
 			$('[data-name="denomination"]', $row).textContent = session.denomination;
 			$('[data-name="address"]', $row).textContent = firstAddress;
-			tableBody.appendChild($row);
+			$sessionsTable.appendChild($row);
 		}
 
 		let hostname = session.host.replace(/:.*/, "");
@@ -1936,9 +1938,9 @@ import DashP2P from "./dashp2p.js";
 			let totalAmount = totalBalance / SATS;
 			$("[data-id=total-balance]").innerText = toFixed(totalAmount, 4);
 
-			let tableBody = $("[data-id=coins-table]");
-			tableBody.textContent = "";
-			tableBody.insertAdjacentHTML("beforeend", elementStrs.join("\n"));
+			let $coinsTable = $("[data-id=coins-table]");
+			$coinsTable.textContent = "";
+			$coinsTable.insertAdjacentHTML("beforeend", elementStrs.join("\n"));
 			//$('[data-id=balances]').innerText = balances.join('\n');
 
 			if (totalBalance >= MIN_BALANCE) {
@@ -2091,12 +2093,6 @@ import DashP2P from "./dashp2p.js";
 					return;
 				}
 
-				let prevDsqStatus =
-					networkInfo.coinjoinQueues[dsq.denomination][dsq.protxhash];
-				let prevTimestamp = prevDsqStatus?.timestamp || "1970-01-01T00:00:00Z";
-				let prevDate = new Date(prevTimestamp);
-				let curDate = new Date(dsq.timestamp);
-
 				if (dsq.ready) {
 					console.log(
 						"%c[DEBUG dsq ready]",
@@ -2113,42 +2109,37 @@ import DashP2P from "./dashp2p.js";
 					// );
 				}
 
-				let dsqStatus = {
-					// node info
-					address: hostnode.address,
-					host: hostnode.address, // deprecated
-					// dsq status
-					protxhash: dsq.protxhash,
-					denomination: dsq.denomination,
-					ready: prevDsqStatus?.ready || dsq.ready,
-					timestamp: dsq.timestamp,
-					timestamp_unix: dsq.timestamp_unix,
-					_prevDate: prevDate,
-					_prevMs: prevDate.valueOf(),
-					_date: curDate,
-					_ms: curDate.valueOf(),
-					_reportedBy: prevDsqStatus?.reported_by || {},
-				};
-				dsqStatus._reportedBy[nodeInfo.address] = new Date();
-				if (dsq.ready) {
-					dsqStatus.ready = dsq.ready;
+				let queueInfo =
+					networkInfo.coinjoinQueues[dsq.denomination][hostnode.proTxHash];
+				if (!queueInfo) {
+					let broadcastAt = dsq.timestamp_unix * 1000;
+					let expiresAt = broadcastAt + DashJoin.AGE_STALE;
+					queueInfo = {
+						dsq: dsq,
+						hostnode: hostnode,
+						reportedBy: {},
+						broadcastAt: broadcastAt,
+						expiresAt: expiresAt,
+					};
+					networkInfo.coinjoinQueues[dsq.denomination][hostnode.proTxHash] =
+						queueInfo;
 				}
-				networkInfo.coinjoinQueues[dsq.denomination][hostnode.proTxHash] =
-					dsqStatus;
+				queueInfo.reportedBy[host] = new Date();
 
-				let reporters = Object.keys(dsqStatus._reportedBy);
+				let reporters = Object.keys(queueInfo.reportedBy);
 				console.log(
 					"%c[[DSQ]]",
 					"color: #bada55",
-					dsqStatus.denomination,
-					dsqStatus.ready,
-					dsqStatus.address,
+					dsq.denomination,
+					dsq.ready,
+					hostnode.address,
 					reporters.length,
 				);
 
 				networkInfo.peers[nodeInfo.address].latestAt = new Date();
 
-				void App._$renderPoolInfo();
+				void App._$renderNodeList();
+				void App._$renderPoolList();
 			},
 		);
 
@@ -2732,21 +2723,6 @@ import DashP2P from "./dashp2p.js";
  * @prop {Number} satoshis
  * @prop {Hex} txid
  * @prop {Number} index
- */
-
-/**
- * @typedef NodeStat
- * @prop {String} host
- * @prop {String} address
- * @prop {String} protxhash
- * @prop {Number} denomination
- * @prop {Boolean} ready
- * @prop {String} timestamp - ISO string
- * @prop {Number} timestamp_unix - seconds since epoch
- * @prop {Date} _prevDate
- * @prop {Number} _prevMs
- * @prop {Date} _date
- * @prop {Number} _ms
  */
 
 /**

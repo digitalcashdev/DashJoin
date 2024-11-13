@@ -698,68 +698,37 @@ change:    0.00000000 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx        1</code></pre>
 					</form>
 
 					<header>
-						<h3>CoinJoin Demon Pools</h3>
+						<h3>CoinJoin Denom Pools</h3>
 					</header>
 					<table>
 						<thead>
 							<tr>
+								<th>Network</th>
 								<th>Denomination</th>
-								<th># Hosts</th>
-								<th>Delay</th>
-								<th>Latest At</th>
-								<th># Testnet Hosts</th>
-								<th>Testnet Delay</th>
-								<th>Testnet Latest</th>
+								<th>Host</th>
+								<th>Reports</th>
+								<th>Added</th>
+								<th>Expires</th>
 							</tr>
 						</thead>
-						<tbody data-id="denominations-table-body">
-							<tr data-id="denom-1000010000">
-								<td>1000010000</td>
-								<td data-name="mainnet-pools"></td>
-								<td data-name="mainnet-delay"></td>
-								<td data-name="mainnet-at"></td>
-								<td data-name="testnet-pools"></td>
-								<td data-name="testnet-delay"></td>
-								<td data-name="testnet-at"></td>
-							</tr>
-							<tr data-id="denom-100001000">
-								<td>100001000</td>
-								<td data-name="mainnet-pools"></td>
-								<td data-name="mainnet-delay"></td>
-								<td data-name="mainnet-at"></td>
-								<td data-name="testnet-pools"></td>
-								<td data-name="testnet-delay"></td>
-								<td data-name="testnet-at"></td>
-							</tr>
-							<tr data-id="denom-10000100">
-								<td>10000100</td>
-								<td data-name="mainnet-pools"></td>
-								<td data-name="mainnet-delay"></td>
-								<td data-name="mainnet-at"></td>
-								<td data-name="testnet-pools"></td>
-								<td data-name="testnet-delay"></td>
-								<td data-name="testnet-at"></td>
-							</tr>
-							<tr data-id="denom-1000010">
-								<td>1000010</td>
-								<td data-name="mainnet-pools"></td>
-								<td data-name="mainnet-delay"></td>
-								<td data-name="mainnet-at"></td>
-								<td data-name="testnet-pools"></td>
-								<td data-name="testnet-delay"></td>
-								<td data-name="testnet-at"></td>
-							</tr>
-							<tr data-id="denom-100001">
-								<td>100001</td>
-								<td data-name="mainnet-pools"></td>
-								<td data-name="mainnet-delay"></td>
-								<td data-name="mainnet-at"></td>
-								<td data-name="testnet-pools"></td>
-								<td data-name="testnet-delay"></td>
-								<td data-name="testnet-at"></td>
-							</tr>
-						</tbody>
+						<tbody data-id="denominations-table-body"></tbody>
 					</table>
+					<template data-id="denominations-row-template">
+						<tr>
+							<td data-name="network"></td>
+							<td
+								data-name="denomination"
+								style="font-family: monospace; text-align: right"
+							></td>
+							<td
+								data-name="host"
+								style="font-family: monospace; text-align: right"
+							></td>
+							<td data-name="reports"></td>
+							<td data-name="broadcast-at"></td>
+							<td data-name="expires-at"></td>
+						</tr>
+					</template>
 				</section>
 
 				<br />
