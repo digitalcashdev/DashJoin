@@ -206,7 +206,7 @@
 				</article>
 
 				<section>
-					<form>
+					<form method="dialog">
 						<label data-network="testnet" hidden
 							>Network
 							<br />
@@ -215,6 +215,290 @@
 							><code data-id="network" disabled>testnet</code></pre>
 							<br />
 						</label>
+						<label
+							>Cash Drawer (<code data-id="cj-balance">0.0000</code>)
+							<small>denominated coins</small>
+						</label>
+						<table>
+							<thead>
+								<tr>
+									<th>Denom</th>
+									<th>Priority</th>
+									<th>Want</th>
+									<th>Have</th>
+									<th>Need</th>
+								</tr>
+							</thead>
+							<tbody>
+								<tr data-denom="1000010000">
+									<th>10.000<span hidden>10000</span></th>
+									<th>
+										<select
+											name="priority"
+											onkeyup="App.syncCashDrawer(event)"
+											onchange="App.syncCashDrawer(event)"
+										>
+											<option value="100">Highest</option>
+											<option value="10">High</option>
+											<option value="5">Medium</option>
+											<option value="2">Low</option>
+											<option value="1">Lowest</option>
+											<option value="0">(ignore)</option>
+										</select>
+									</th>
+									<th>
+										<input
+											name="want"
+											onkeyup="App.syncCashDrawer(event)"
+											onchange="App.syncCashDrawer(event)"
+											type="number"
+											step="1"
+											min="0"
+											value="2"
+										/>
+									</th>
+									<th data-name="have">0</th>
+									<th data-name="need">0</th>
+								</tr>
+								<tr data-denom="100001000">
+									<th>1.000<span hidden>01000</span></th>
+									<th>
+										<select
+											name="priority"
+											onkeyup="App.syncCashDrawer(event)"
+											onchange="App.syncCashDrawer(event)"
+										>
+											<option value="100">Highest</option>
+											<option value="10">High</option>
+											<option value="5">Medium</option>
+											<option value="2">Low</option>
+											<option value="1">Lowest</option>
+											<option value="0">(ignore)</option>
+										</select>
+									</th>
+									<th>
+										<input
+											name="want"
+											onkeyup="App.syncCashDrawer(event)"
+											onchange="App.syncCashDrawer(event)"
+											type="number"
+											step="1"
+											min="0"
+											value="10"
+										/>
+									</th>
+									<th data-name="have">0</th>
+									<th data-name="need">0</th>
+								</tr>
+								<tr data-denom="10000100">
+									<th>0.100<span hidden>00100</span></th>
+									<th>
+										<select
+											name="priority"
+											onkeyup="App.syncCashDrawer(event)"
+											onchange="App.syncCashDrawer(event)"
+										>
+											<option value="100">Highest</option>
+											<option value="10">High</option>
+											<option value="5">Medium</option>
+											<option value="2">Low</option>
+											<option value="1">Lowest</option>
+											<option value="0">(ignore)</option>
+										</select>
+									</th>
+									<th>
+										<input
+											name="want"
+											onkeyup="App.syncCashDrawer(event)"
+											onchange="App.syncCashDrawer(event)"
+											type="number"
+											step="1"
+											min="0"
+											value="50"
+										/>
+									</th>
+									<th data-name="have">0</th>
+									<th data-name="need">0</th>
+								</tr>
+								<tr data-denom="1000010">
+									<th>0.010<span hidden>00010</span></th>
+									<th>
+										<select
+											name="priority"
+											onkeyup="App.syncCashDrawer(event)"
+											onchange="App.syncCashDrawer(event)"
+										>
+											<option value="100">Highest</option>
+											<option value="10">High</option>
+											<option value="5">Medium</option>
+											<option value="2">Low</option>
+											<option value="1">Lowest</option>
+											<option value="0">(ignore)</option>
+										</select>
+									</th>
+									<th>
+										<input
+											name="want"
+											onkeyup="App.syncCashDrawer(event)"
+											onchange="App.syncCashDrawer(event)"
+											type="number"
+											step="1"
+											min="0"
+											value="20"
+										/>
+									</th>
+									<th data-name="have">0</th>
+									<th data-name="need">0</th>
+								</tr>
+								<tr data-denom="100001">
+									<th>0.001<span hidden>00001</span></th>
+									<th>
+										<select
+											name="priority"
+											onkeyup="App.syncCashDrawer(event)"
+											onchange="App.syncCashDrawer(event)"
+										>
+											<option value="100">Highest</option>
+											<option value="10">High</option>
+											<option value="5">Medium</option>
+											<option value="2">Low</option>
+											<option value="1">Lowest</option>
+											<option value="0">(ignore)</option>
+										</select>
+									</th>
+									<th>
+										<input
+											name="want"
+											onkeyup="App.syncCashDrawer(event)"
+											onchange="App.syncCashDrawer(event)"
+											type="number"
+											step="1"
+											min="0"
+											value="5"
+										/>
+									</th>
+									<th data-name="have">0</th>
+									<th data-name="need">0</th>
+								</tr>
+								<tr data-denom="10000">
+									<th>
+										<small><em>Collateral</em></small>
+									</th>
+									<th>
+										<select
+											disabled
+											name="priority"
+											onkeyup="App.syncCashDrawer(event)"
+											onchange="App.syncCashDrawer(event)"
+										>
+											<option value="100">Highest</option>
+											<option value="10">High</option>
+											<option value="5">Medium</option>
+											<option value="2">Low</option>
+											<option value="1">Lowest</option>
+											<option value="0" selected>(ignore)</option>
+										</select>
+									</th>
+									<th>
+										<input
+											name="want"
+											onkeyup="App.syncCashDrawer(event)"
+											onchange="App.syncCashDrawer(event)"
+											type="number"
+											step="1"
+											min="0"
+											value="5"
+										/>
+									</th>
+									<th data-name="have">0</th>
+									<th data-name="need">0</th>
+								</tr>
+							</tbody>
+						</table>
+						<fieldset>
+							<button type="button" onclick="App.denominateCoins(event)">
+								Denominate Coins
+							</button>
+							<button type="button" onclick="App.createCoinJoinSession(event)">
+								Run CoinJoin
+							</button>
+						</fieldset>
+					</form>
+				</section>
+
+				<br />
+				<section>
+					<header>
+						<h3>Recent Sessions</h3>
+					</header>
+					<form method="dialog">
+						<table style="font-size: 0.75rem">
+							<thead>
+								<tr>
+									<th>Denom</th>
+									<th>Node</th>
+									<th>Address</th>
+									<th>DSA</th>
+									<th>DSQ</th>
+									<th>DSI</th>
+									<th>DSF</th>
+									<th>DSS</th>
+									<th>DSC</th>
+									<th>DSSU</th>
+								</tr>
+							</thead>
+							<tbody data-id="sessions-table-body">
+								<tr>
+									<!-- Rows will be inserted here -->
+									<td data-name="denomination">-.-----</td>
+									<td
+										data-name="hostname"
+										style="font-family: monospace; font-size: 0.5rem"
+									>
+										---.---.---.---
+									</td>
+									<td
+										data-name="address"
+										style="font-family: monospace; font-size: 0.5rem"
+									>
+										----------------------------------
+									</td>
+									<td data-name="dsa">-</td>
+									<td data-name="dsq">-</td>
+									<td data-name="dsi">-</td>
+									<td data-name="dsf">-</td>
+									<td data-name="dss">-</td>
+									<td data-name="dsc">-</td>
+									<td data-name="dssu">-----</td>
+								</tr>
+							</tbody>
+						</table>
+						<template data-id="sessions-row-template">
+							<tr>
+								<td data-name="denomination"></td>
+								<td
+									data-name="hostname"
+									style="font-family: monospace; font-size: 0.5rem"
+								></td>
+								<td
+									data-name="address"
+									style="font-family: monospace; font-size: 0.5rem"
+								></td>
+								<td data-name="dsa"></td>
+								<td data-name="dsq"></td>
+								<td data-name="dsi"></td>
+								<td data-name="dsf"></td>
+								<td data-name="dss"></td>
+								<td data-name="dsc"></td>
+								<td data-name="dssu"></td>
+							</tr>
+						</template>
+					</form>
+				</section>
+
+				<br />
+				<section>
+					<form>
 						<label
 							>Coins (<code data-id="total-balance">0.0000</code>)
 							<small>unspent outputs</small>
@@ -316,271 +600,6 @@
 						<button type="submit" onclick="App.sendDash(event)">
 							Send DASH
 						</button>
-					</form>
-				</section>
-
-				<br />
-				<section>
-					<form method="dialog">
-						<label
-							>Cash Drawer (<code data-id="cj-balance">0.0000</code>)
-							<small>denominated coins</small>
-						</label>
-						<table>
-							<thead>
-								<tr>
-									<th>Denom</th>
-									<th>Priority</th>
-									<th>Have</th>
-									<th>Want</th>
-									<th>Need</th>
-								</tr>
-							</thead>
-							<tbody data-id="coins-table">
-								<tr data-denom="1000010000">
-									<th>10.000<span hidden>10000</span></th>
-									<th>
-										<input
-											name="priority"
-											onkeyup="App.syncCashDrawer(event)"
-											onchange="App.syncCashDrawer(event)"
-											type="number"
-											step="1"
-											min="0"
-											value="1"
-										/>
-									</th>
-									<th data-name="have">0</th>
-									<th>
-										<input
-											name="want"
-											onkeyup="App.syncCashDrawer(event)"
-											onchange="App.syncCashDrawer(event)"
-											type="number"
-											step="1"
-											min="0"
-											value="2"
-										/>
-									</th>
-									<th data-name="need">0</th>
-								</tr>
-								<tr data-denom="100001000">
-									<th>1.000<span hidden>01000</span></th>
-									<th>
-										<input
-											name="priority"
-											onkeyup="App.syncCashDrawer(event)"
-											onchange="App.syncCashDrawer(event)"
-											type="number"
-											step="1"
-											min="0"
-											value="10"
-										/>
-									</th>
-									<th data-name="have">0</th>
-									<th>
-										<input
-											name="want"
-											onkeyup="App.syncCashDrawer(event)"
-											onchange="App.syncCashDrawer(event)"
-											type="number"
-											step="1"
-											min="0"
-											value="10"
-										/>
-									</th>
-									<th data-name="need">0</th>
-								</tr>
-								<tr data-denom="10000100">
-									<th>0.100<span hidden>00100</span></th>
-									<th>
-										<input
-											name="priority"
-											onkeyup="App.syncCashDrawer(event)"
-											onchange="App.syncCashDrawer(event)"
-											type="number"
-											step="1"
-											min="0"
-											value="10"
-										/>
-									</th>
-									<th data-name="have">0</th>
-									<th>
-										<input
-											name="want"
-											onkeyup="App.syncCashDrawer(event)"
-											onchange="App.syncCashDrawer(event)"
-											type="number"
-											step="1"
-											min="0"
-											value="50"
-										/>
-									</th>
-									<th data-name="need">0</th>
-								</tr>
-								<tr data-denom="1000010">
-									<th>0.010<span hidden>00010</span></th>
-									<th>
-										<input
-											name="priority"
-											onkeyup="App.syncCashDrawer(event)"
-											onchange="App.syncCashDrawer(event)"
-											type="number"
-											step="1"
-											min="0"
-											value="1"
-										/>
-									</th>
-									<th data-name="have">0</th>
-									<th>
-										<input
-											name="want"
-											onkeyup="App.syncCashDrawer(event)"
-											onchange="App.syncCashDrawer(event)"
-											type="number"
-											step="1"
-											min="0"
-											value="20"
-										/>
-									</th>
-									<th data-name="need">0</th>
-								</tr>
-								<tr data-denom="100001">
-									<th>0.001<span hidden>00001</span></th>
-									<th>
-										<input
-											name="priority"
-											onkeyup="App.syncCashDrawer(event)"
-											onchange="App.syncCashDrawer(event)"
-											type="number"
-											step="1"
-											min="0"
-											value="0"
-										/>
-									</th>
-									<th data-name="have">0</th>
-									<th>
-										<input
-											name="want"
-											onkeyup="App.syncCashDrawer(event)"
-											onchange="App.syncCashDrawer(event)"
-											type="number"
-											step="1"
-											min="0"
-											value="5"
-										/>
-									</th>
-									<th data-name="need">0</th>
-								</tr>
-								<tr data-denom="10000">
-									<th>
-										<small><em>Collateral</em></small>
-									</th>
-									<th>
-										<input
-											name="priority"
-											onkeyup="App.syncCashDrawer(event)"
-											onchange="App.syncCashDrawer(event)"
-											type="number"
-											step="1"
-											min="0"
-											value="0"
-										/>
-									</th>
-									<th data-name="have">0</th>
-									<th>
-										<input
-											name="want"
-											onkeyup="App.syncCashDrawer(event)"
-											onchange="App.syncCashDrawer(event)"
-											type="number"
-											step="1"
-											min="0"
-											value="5"
-										/>
-									</th>
-									<th data-name="need">0</th>
-								</tr>
-							</tbody>
-						</table>
-						<fieldset>
-							<button type="button" onclick="App.denominateCoins(event)">
-								Denominate Coins
-							</button>
-							<button type="button" onclick="App.createCoinJoinSession(event)">
-								Run CoinJoin
-							</button>
-						</fieldset>
-					</form>
-				</section>
-
-				<br />
-				<section>
-					<header>
-						<h3>Recent Sessions</h3>
-					</header>
-					<form method="dialog">
-						<table style="font-size: 0.75rem">
-							<thead>
-								<tr>
-									<th>Denom</th>
-									<th>Node</th>
-									<th>Address</th>
-									<th>DSA</th>
-									<th>DSQ</th>
-									<th>DSI</th>
-									<th>DSF</th>
-									<th>DSS</th>
-									<th>DSC</th>
-									<th>DSSU</th>
-								</tr>
-							</thead>
-							<tbody data-id="sessions-table-body">
-								<tr hidden>
-									<!-- Rows will be inserted here -->
-									<td data-name="denomination">1.0000</td>
-									<td
-										data-name="hostname"
-										style="font-family: monospace; font-size: 0.5rem"
-									>
-										52.34.250.214
-									</td>
-									<td
-										data-name="address"
-										style="font-family: monospace; font-size: 0.5rem"
-									>
-										yfYmqmzP7xhFxQPA5uEAqri2Txvd6Nyv1T
-									</td>
-									<td data-name="dsa">➡️</td>
-									<td data-name="dsq">2.4s</td>
-									<td data-name="dsi">➡️</td>
-									<td data-name="dsf">10.3s</td>
-									<td data-name="dss">➡️</td>
-									<td data-name="dsc">15.0s</td>
-									<td data-name="dssu">READY</td>
-								</tr>
-							</tbody>
-						</table>
-						<template data-id="sessions-row-template">
-							<tr>
-								<td data-name="denomination"></td>
-								<td
-									data-name="hostname"
-									style="font-family: monospace; font-size: 0.5rem"
-								></td>
-								<td
-									data-name="address"
-									style="font-family: monospace; font-size: 0.5rem"
-								></td>
-								<td data-name="dsa"></td>
-								<td data-name="dsq"></td>
-								<td data-name="dsi"></td>
-								<td data-name="dsf"></td>
-								<td data-name="dss"></td>
-								<td data-name="dsc"></td>
-								<td data-name="dssu"></td>
-							</tr>
-						</template>
 					</form>
 				</section>
 			</div>
