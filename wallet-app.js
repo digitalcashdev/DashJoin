@@ -1,5 +1,6 @@
 import DashJoin from "./dashjoin.js";
 import DashP2P from "./dashp2p.js";
+import Wallet from "./wallet.js";
 
 (function () {
 	"use strict";
@@ -493,7 +494,7 @@ import DashP2P from "./dashp2p.js";
 		$('[data-id="wallet-status"]').textContent = "";
 		setTimeout(async function () {
 			$('[data-id="wallet-status"]').textContent = "updating...";
-			// await App._$walletUpdate(phrase, salt, accountIndex);
+			// await App._$walletUpdate(phrase, salt, accountIndex, coinjoinIndex);
 			await App.$init(App.network);
 		}, 100);
 		setTimeout(function () {
@@ -507,9 +508,17 @@ import DashP2P from "./dashp2p.js";
 	/**
 	 * @param {String} phrase
 	 * @param {String} salt
-	 * @param {Number} accountIndex
+	 * @param {Number} primaryAccount - 0 (typical primary)
+	 * @param {Number} coinjoinAccount - 1 (above primary)
+	 * @param {Number} firstRoundIndex - 2 (above receive/change)
 	 */
-	App._$walletUpdate = async function (phrase, salt, accountIndex) {
+	App._$walletUpdate = async function (
+		phrase,
+		salt,
+		primaryAccount = 0,
+		coinjoinAccount = 1,
+		firstRoundIndex = 2,
+	) {
 		sessionSalt = salt || "";
 
 		let seedBytes = await DashPhrase.toSeed(phrase, sessionSalt);
@@ -517,9 +526,14 @@ import DashP2P from "./dashp2p.js";
 
 		$('[name="walletPhrase"]').value = phrase;
 		$('[name="walletSeed"]').value = seedHex;
-		$('[name="walletAccount"]').value = accountIndex.toString();
-		$("[data-id=wallet-path]").value =
-			`m/44'/${App.coinType}'/${accountIndex}'`;
+
+		$('[name="primaryAccount"]').value = primaryAccount.toString();
+		$("[data-id=primary-path]").value =
+			`m/44'/${App.coinType}'/${primaryAccount}'`;
+
+		$('[name="coinjoinAccount"]').value = coinjoinAccount.toString();
+		$("[data-id=coinjoin-path]").value =
+			`m/44'/${App.coinType}'/${coinjoinAccount}'/${firstRoundIndex}`;
 
 		// $('[name="walletPhrase"]').type = "password"; // delayed to avoid pw prompt
 		// $('[name="walletSeed"]').type = "password"; // delayed to avoid pw prompt
@@ -528,10 +542,18 @@ import DashP2P from "./dashp2p.js";
 
 	/**
 	 * @param {String} phrase
-	 * @param {String} salt
+	 * @param {String} sessionSalt
 	 * @param {Number} accountIndex
+	 * @param {Number} lastReceiveIndex
+	 * @param {Number} lastChangeIndex
 	 */
-	App._walletDerive = async function (phrase, salt, accountIndex) {
+	App._walletDerive = async function (
+		phrase,
+		sessionSalt,
+		accountIndex,
+		lastReceiveIndex = 0,
+		lastChangeIndex = 0,
+	) {
 		// reset all key & address state
 		addresses = [];
 		changeAddrs = [];
@@ -539,7 +561,7 @@ import DashP2P from "./dashp2p.js";
 		spentAddrs = [];
 		spendableAddrs = [];
 		deltasMap = {};
-		keysMap = {};
+		// keysMap = {}; // this is reference-only
 
 		let primarySeedBytes = await DashPhrase.toSeed(phrase, sessionSalt);
 		let walletKey = await DashHd.fromSeed(primarySeedBytes);
@@ -553,26 +575,28 @@ import DashP2P from "./dashp2p.js";
 		let xprvReceiveKey = await accountKey.deriveXKey(DashHd.RECEIVE);
 		let xprvChangeKey = await accountKey.deriveXKey(DashHd.CHANGE);
 
-		let previousIndex = 0;
-		let last = previousIndex + 50;
-		for (let i = previousIndex; i < last; i += 1) {
-			let failed;
+		let receiveEnd = lastReceiveIndex + 50;
+		for (let i = lastReceiveIndex; i < receiveEnd; i += 1) {
+			let receiveKey;
 			try {
-				let receiveKey = await xprvReceiveKey.deriveAddress(i); // xprvKey from step 2
-				await addKey(walletId, accountIndex, receiveKey, DashHd.RECEIVE, i);
+				receiveKey = await xprvReceiveKey.deriveAddress(i); // xprvKey from step 2
 			} catch (e) {
-				failed = true;
+				receiveEnd += 1; // to make up for skipping on error
+				continue;
 			}
+			await addKey(walletId, accountIndex, receiveKey, DashHd.RECEIVE, i);
+		}
+
+		let changeEnd = lastChangeIndex + 50;
+		for (let i = lastChangeIndex; i < changeEnd; i += 1) {
+			let changeKey;
 			try {
-				let changeKey = await xprvChangeKey.deriveAddress(i); // xprvKey from step 2
-				addKey(walletId, accountIndex, changeKey, DashHd.CHANGE, i);
+				changeKey = await xprvChangeKey.deriveAddress(i); // xprvKey from step 2
 			} catch (e) {
-				failed = true;
+				changeEnd += 1; // to make up for skipping on error
+				continue;
 			}
-			if (failed) {
-				// to make up for skipping on error
-				last += 1;
-			}
+			await addKey(walletId, accountIndex, changeKey, DashHd.CHANGE, i);
 		}
 	};
 
@@ -1157,10 +1181,18 @@ import DashP2P from "./dashp2p.js";
 		let primarySeedBytes = await DashPhrase.toSeed(primaryPhrase, sessionSalt);
 		let walletKey = await DashHd.fromSeed(primarySeedBytes);
 		let walletId = await DashHd.toId(walletKey);
-		let accountIndex = await dbGet(`wallet-${walletId}-account-index`, 0);
+		let primaryIndex = await dbGet(`wallet-${walletId}-primary-index`, 0);
+		let coinjoinIndex = await dbGet(`wallet-${walletId}-coinjoin-index`, 1);
+		let firstRoundIndex = await dbGet(`wallet-${walletId}-coinjoin-index`, 2);
 
-		await App._$walletUpdate(primaryPhrase, sessionSalt, accountIndex);
-		await App._walletDerive(primaryPhrase, sessionSalt, accountIndex);
+		await App._$walletUpdate(
+			primaryPhrase,
+			sessionSalt,
+			primaryIndex,
+			coinjoinIndex,
+			firstRoundIndex,
+		);
+		await App._walletDerive(primaryPhrase, sessionSalt, primaryIndex);
 
 		await updateDeltas(addresses);
 		renderAddresses();
@@ -1513,7 +1545,6 @@ import DashP2P from "./dashp2p.js";
 			changeAddrs.push(address);
 		} else {
 			let err = new Error(`unknown usage '${usage}'`);
-			window.alert(err.message);
 			throw err;
 		}
 
@@ -1522,6 +1553,8 @@ import DashP2P from "./dashp2p.js";
 		let pkhBytes = await DashKeys.pubkeyToPkh(key.publicKey);
 		keysMap[address] = {
 			walletId: walletId,
+			// account: accountIndex,
+			// usage: usage,
 			index: i,
 			hdpath: hdpath, // useful for multi-account indexing
 			address: address, // XrZJJfEKRNobcuwWKTD3bDu8ou7XSWPbc9

@@ -814,6 +814,8 @@ change:    0.00000000 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx        1</code></pre>
     document.querySelector('[name=exportAddress]').placeholder = 'ex: XyBmeuLa8y3D3XmzPvCTj5PVh7WvMPkLn1';
     document.querySelector('[name=rpcUrl]').placeholder = 'ex: https://api:null@rpc.digitcash.dev:443/';
     document.querySelector('[name=p2pUrl]').placeholder = 'ex: wss://api:null@p2p.digitcash.dev:443/ws?access_token=';
+    document.querySelector('[data-id=primary-path]').placeholder = &quot;ex: m/44'/5'/0'&quot;
+    document.querySelector('[data-id=coinjoin-path]').placeholder = &quot;ex: m/44'/5'/1'/2&quot;
     App.$setNetwork('mainnet');
                                     "
 									checked="checked"
@@ -830,6 +832,8 @@ change:    0.00000000 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx        1</code></pre>
     document.querySelector('[name=exportAddress]').placeholder = 'ex: yh82paUZiCxwrWkXZHygjgMbCB2ovHGRX7'
     document.querySelector('[name=rpcUrl]').placeholder = 'ex: https://api:null@trpc.digitcash.dev:443/';
     document.querySelector('[name=p2pUrl]').placeholder = 'ex: wss://api:null@tp2p.digitcash.dev:443/ws?access_token=';
+    document.querySelector('[data-id=primary-path]').placeholder = &quot;ex: m/44'/1'/0'&quot;
+    document.querySelector('[data-id=coinjoin-path]').placeholder = &quot;ex: m/44'/1'/1'/2&quot;
     App.$setNetwork('testnet');
                                     "
 								/>
@@ -982,25 +986,64 @@ change:    0.00000000 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx        1</code></pre>
 									value=""
 								/></details
 						></label>
-						<label
-							>HD Account
-							<small>of bip-44 path</small>
-							<input
-								name="walletAccount"
-								type="number"
-								min="0"
-								step="1"
-								max="2147483647"
-								value="0"
-								placeholder="ex: 0"
-							/>
-						</label>
-						<input
-							disabled
-							type="text"
-							data-id="wallet-path"
-							placeholder="ex: m/44'/5'/0'"
-						/>
+						<fieldset>
+							<label
+								>HD Account (Primary)
+								<input
+									name="primaryAccount"
+									type="number"
+									min="0"
+									step="1"
+									max="2147483647"
+									value="0"
+									placeholder="ex: 0"
+								/>
+							</label>
+							<label>
+								<small>bip-44 path</small>
+								<input
+									disabled
+									type="text"
+									data-id="primary-path"
+									placeholder="ex: m/44'/5'/0'"
+								/>
+							</label>
+						</fieldset>
+						<fieldset>
+							<label
+								>HD Account (CoinJoin)
+								<input
+									name="coinjoinAccount"
+									type="number"
+									min="0"
+									step="1"
+									max="2147483647"
+									value="1"
+									placeholder="ex: 1"
+								/>
+							</label>
+							<label>
+								First Round Index
+								<input
+									name="firstRoundIndex"
+									type="number"
+									min="0"
+									step="1"
+									max="2147483647"
+									value="2"
+									placeholder="ex: 2"
+								/>
+							</label>
+							<label>
+								<small>0: receive, 1: change, 2-16: coinjoin</small>
+								<input
+									disabled
+									type="text"
+									data-id="coinjoin-path"
+									placeholder="ex: m/44'/5'/1'/2"
+								/>
+							</label>
+						</fieldset>
 						<button>Update</button>
 						<small data-id="wallet-status">&nbsp;</small>
 					</form>
