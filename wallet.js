@@ -9,24 +9,21 @@ let DashKeys = window.DashKeys;
 ////@ts-expect-error
 //let Secp256k1 = window.nobleSecp256k1;
 
-/** @typedef {String} Base58Check */
-/** @typedef {String} Hex */
-
 /**
- * @typedef {KeyInfoGenerated & KeyStateMini} KeyInfo
+ * @typedef {KeyInfo & KeyStateMini} KeyState
  */
 
 /**
- * @typedef KeyInfoGenerated
+ * @typedef KeyInfo
  * @prop {WalletID} walletId
  * @prop {AccountID} accountId
  * @prop {Number} account
- * @prop {Number} usage
+ * @prop {Usage} usage
  * @prop {Number} index
  * @prop {String} hdpath
  * @prop {Base58Check} address
  * @prop {Base58Check} wif
- * @prop {import('dashhd').HDKey} xkey
+ * @prop {import('dashhd').HDKey} hdkey
  * @prop {Uint8Array?} privateKey
  * @prop {Uint8Array} publicKey
  * @prop {Hex} pubKeyHash
@@ -39,46 +36,104 @@ let DashKeys = window.DashKeys;
  * @prop {Boolean} hasBeenUsed
  */
 
+/**
+ * @typedef XKeyInfo
+ * @prop {String} network
+ * @prop {WalletID} walletId
+ * @prop {AccountID} accountId
+ * @prop {Number} accountIndex
+ * @prop {import('dashhd').HDXKey} usageKey
+ */
+
+// TODO XXX place accountId on accountKey canonically in DashHD
+// https://github.com/dashhive/DashHD.js/issues/40
+/**
+ * @typedef AccountInfo
+ * @prop {String} network
+ * @prop {WalletID} walletId
+ * @prop {AccountID} accountId
+ * @prop {import('dashhd').HDAccount} accountKey
+ */
+
+const USAGE_RECEIVE = DashHd.RECEIVE;
+const USAGE_CHANGE = DashHd.CHANGE;
 const USAGE_COINJOIN = 2;
 const ROUNDS_TARGET = 16;
 
 let Wallet = {};
 
-/**
- * @typedef {String} WalletID
- * @typedef {String} AccountID
- * @typedef {Base58Check} Address
- */
+Wallet.USAGE_RECEIVE = USAGE_RECEIVE;
+Wallet.USAGE_CHANGE = USAGE_CHANGE;
+Wallet.USAGE_COINJOIN = USAGE_COINJOIN;
+
+/** @typedef {String} Base58Check */
+/** @typedef {String} Hex */
+/** @typedef {String} WalletID */
+/** @typedef {String} AccountID */
+/** @typedef {Number} Usage */
+/** @typedef {Base58Check} Address */
 
 /**
- * @typedef WalletState
- * @prop {Array<Address>} receiveUnusedSparse
- * @prop {Number} _receiveLastUnused
- * @prop {Array<Address>} changeUnusedSparse
- * @prop {Number} _changeLastUnused
- * @prop {Array<Address>} coinjoinUnusedSparse
- * @prop {Number} _coinjoinLastUnused
+ * Using sparse arrays to track usage and index
+ * @typedef WalletStateSparse
+ * @prop {Array<KeyState>} unused
+ * @prop {Array<KeyState>} spendable
+ * @prop {Array<KeyState>} reserved
+ * @prop {Array<KeyState>} used
  */
 
-/** @type {Object.<AccountID, WalletState>} */
+/** @type {Object.<AccountID, Array<WalletStateSparse>>} */
 Wallet._walletStates = {
-	"-": {
-		receiveUnusedSparse: [],
-		_receiveLastUnused: 0,
-		changeUnusedSparse: [],
-		_changeFirstUnused: 0,
-		coinjoinUnusedSparse: [],
-		_coinjoinLastUnused: 0,
-	},
+	"<example-account-id>": [
+		{
+			unused: [],
+			spendable: [],
+			reserved: [],
+			used: [],
+		},
+	],
 };
 
-/** @type {Object.<Address, KeyInfo>} */
+/**
+ * @param {AccountID} accountId
+ * @param {Usage} usage
+ * @returns {WalletStateSparse}
+ */
+Wallet._getState = function (accountId, usage) {
+	let accountState = Wallet._walletStates[accountId];
+	if (!accountState) {
+		accountState = [];
+		Wallet._walletStates[accountId] = accountState;
+	}
+
+	/** @type {WalletStateSparse} */
+	let usageState = accountState[usage];
+	if (!usageState) {
+		usageState = {
+			unused: [],
+			spendable: [],
+			reserved: [],
+			used: [],
+		};
+		accountState[usage] = usageState;
+	}
+
+	return usageState;
+};
+
+/** @type {Object.<Address, KeyState>} */
 Wallet._spendable = {};
 
-/** @type {Object.<Address, KeyInfo>} */
+/** @type {Object.<Address, KeyState>} */
 Wallet._unused = {};
 
-/** @type {Object.<AccountID, Array<import('dashhd').HDKey>>} */
+/** @type {Object.<Address, KeyState>} */
+Wallet._reserved = {};
+
+/** @type {Object.<Address, KeyState>} */
+Wallet._used = {};
+
+/** @type {Object.<AccountID, Array<import('dashhd').HDXKey>>} */
 Wallet._coinjoinXPrvs = {};
 
 Wallet.init = async function () {
@@ -93,12 +148,54 @@ Wallet.init = async function () {
 
 /**
  * @param {String} network
- * @param {import('dashhd').HDAccount} accountKey
- * @param {Address} address
+ * @param {import('dashhd').HDWallet} walletKey
+ * @param {Number} accountIndex
+ * @param {Usage} usage - DashHd.RECEIVE, DashHd.RECEIVE, Wallet.USAGE_COINJOIN
+ * @returns {Promise<XKeyInfo>}
  */
-Wallet.getCoinJoinAddressFor = async function (network, accountKey, address) {
+Wallet.rawGetUsageKey = async function (
+	network,
+	walletKey,
+	accountIndex,
+	usage,
+) {
+	let walletId = await DashHd.toId(walletKey);
+	/** @type {import('dashhd').HDAccount} */
+	let accountKey = await walletKey.deriveAccount(accountIndex);
+	/** @type {AccountID} */
 	let accountId = await DashHd.toId(accountKey);
-	let prevInfo = Wallet.Addresses._cache[address];
+	/** @type {import('dashhd').HDXKey} */
+	let usageKey = await accountKey.deriveXKey(usage);
+
+	return {
+		network,
+		walletId,
+		accountId,
+		accountIndex,
+		usageKey,
+	};
+};
+
+// Wallet.Addresses.update = async function (address, deltas) {
+// 	// TODO
+// 	// - update in-memory cache (potentially the full data)
+// 	// - update storage (very little data)
+// 	// - will we need the full data from the network again?
+// 	//   (YES! but only when spending utxos)
+// };
+
+/**
+ * @param {AccountInfo} accountInfo
+ * @param {Address} address
+ * @param {Number} [maxRounds=ROUNDS_TARGET] - typically 16
+ * @returns {Promise<KeyState>}
+ */
+Wallet.getCoinJoinAddressFor = async function (
+	accountInfo,
+	address,
+	maxRounds = ROUNDS_TARGET,
+) {
+	let roundInfo = Wallet.Addresses._cache[address];
 
 	// Implementation decisions (not decided by spec)
 	// - Which account is designated the coinjoin account?
@@ -113,71 +210,103 @@ Wallet.getCoinJoinAddressFor = async function (network, accountKey, address) {
 	//                                     (the 16th goes back to 0 receive)
 	// - do we denominate in the main wallet? or the CJ wallet (2-17)?
 
-	let usageRound = prevInfo.usage - USAGE_COINJOIN;
-	if (usageRound >= ROUNDS_TARGET) {
+	let usageRound = roundInfo.usage - USAGE_COINJOIN;
+	if (usageRound >= maxRounds) {
 		let msg = `${address} has already been through ${ROUNDS_TARGET} CoinJoin rounds`;
 		let err = new Error(msg);
 		Object.assign(err, { code: "E_COINJOIN_MAX_ROUNDS" });
 		throw err;
 	}
 
-	if (usageRound >= 0) {
-		if (prevInfo.accountId !== accountId) {
-			let msg = `'${address}' is already in round ${usageRound} of CoinJoin in wallet ${prevInfo.walletId}'s account ${prevInfo.accountId}`;
+	let mustDenominate = usageRound < 0;
+	if (mustDenominate) {
+		/** @type {import('dashhd').HDXKey} */
+		let usageKey = await Wallet._getXPrv(accountInfo, USAGE_COINJOIN);
+		let xkeyInfo = {
+			network: accountInfo.network,
+			walletId: accountInfo.walletId,
+			accountId: accountInfo.accountId,
+			accountIndex: accountInfo.accountKey.index,
+			usageKey: usageKey,
+		};
+
+		let maxRoundsForReal = 42; // anything beyond this would be meaningless
+		let maxTriesCount = 3; // anything more than 2 is excessive
+		let keyStates = await Wallet.getUnusedKeys(
+			accountInfo.accountId,
+			xkeyInfo,
+			maxTriesCount,
+		);
+		for (let keyState of keyStates) {
+			try {
+				for (
+					let usage = USAGE_COINJOIN + 1;
+					usage <= maxRoundsForReal;
+					usage += 1
+				) {
+					/** @type {import('dashhd').HDXKey} */
+					let usageKey = await Wallet._getXPrv(accountInfo, usage);
+					void (await usageKey.deriveAddress(keyState.index));
+				}
+			} catch (e) {
+				continue;
+			}
+
+			return keyState;
+		}
+		throw new Error(`sanity fail: the universe has run out of entropy`);
+	}
+
+	{
+		if (roundInfo.accountId !== accountInfo.accountId) {
+			let msg = `'${address}' is already in round ${usageRound} of CoinJoin in wallet ${roundInfo.walletId}'s account ${roundInfo.accountId}`;
 			let err = new Error(msg);
 			Object.assign(err, { code: "E_COINJOIN_IN_OTHER_WALLET" });
 			throw err;
 		}
+
+		let nextUsage = roundInfo.usage + 1;
+		// /** @type {import('dashhd').HDXKey} */
+		let usageKey = await Wallet._getXPrv(accountInfo, nextUsage);
+		let xkeyInfo = {
+			network: accountInfo.network,
+			walletId: accountInfo.walletId,
+			accountId: accountInfo.accountId,
+			accountIndex: accountInfo.accountKey.index,
+			usageKey: usageKey,
+		};
+		let addressKey = await usageKey.deriveAddress(roundInfo.index);
+
+		// note: we can skip the failed index check here
+		//       because it is done when denominating
+		let keyInfo = await Wallet._rawGetKeyInfo(xkeyInfo, addressKey);
+		let keyState = Wallet._mergeKeyState(keyInfo);
+		return keyState;
 	}
-
-	let index = prevInfo.index;
-	if (usageRound < 0) {
-		// index = _reserveNextUnusedCJIndex();
-		throw new Error("denomination address not implemented");
-	}
-
-	let xprvKey = await Wallet._getXPrv(accountKey, accountId, usageRound);
-	let addressKey = await xprvKey.deriveAddressKey(prevInfo.index);
-
-	let genInfo = await Wallet._rawGetKeyInfo(
-		network,
-		prevInfo.walletId,
-		accountId,
-		accountKey.index,
-		usageRound,
-		index,
-		addressKey,
-	);
-	let nextInfo = Wallet._mergeKeyInfo(genInfo);
-	return nextInfo.address;
 };
 
 /**
- * @param {KeyInfoGenerated} genInfo
+ * @param {KeyInfo} keyInfo
  */
-Wallet._mergeKeyInfo = function (genInfo) {
-	let _cacheInfo = Wallet.Addresses._cache[genInfo.address] || {};
-	Wallet.Addresses._cache[genInfo.address] = Object.assign(_cacheInfo, genInfo);
+Wallet._mergeKeyState = function (keyInfo) {
+	let _cacheInfo = Wallet.Addresses._cache[keyInfo.address] || {};
+	Wallet.Addresses._cache[keyInfo.address] = Object.assign(_cacheInfo, keyInfo);
 	return _cacheInfo;
 };
 
 /**
- * @param {import('dashhd').HDAccount} accountKey
- * @param {AccountID} accountId
+ * @param {AccountInfo} accountInfo
  * @param {Number} usage
  */
-Wallet._getXPrv = async function (accountKey, accountId, usage) {
-	// TODO XXX place accountId on accountKey canonically in DashHD
-	// https://github.com/dashhive/DashHD.js/issues/40
-
-	let xprvKeys = Wallet._coinjoinXPrvs[accountId];
+Wallet._getXPrv = async function (accountInfo, usage) {
+	let xprvKeys = Wallet._coinjoinXPrvs[accountInfo.accountId];
 	if (!xprvKeys) {
-		Wallet._coinjoinXPrvs[accountId] = [];
+		Wallet._coinjoinXPrvs[accountInfo.accountId] = [];
 	}
 
 	let xprvKey = xprvKeys[usage];
 	if (!xprvKey) {
-		xprvKey = await accountKey.deriveXKey(usage);
+		xprvKey = await accountInfo.accountKey.deriveXKey(usage);
 		xprvKeys[usage] = xprvKey;
 	}
 
@@ -186,106 +315,128 @@ Wallet._getXPrv = async function (accountKey, accountId, usage) {
 
 /**
  * Get (offline-cached) list of unused receive addresses
- * @param {String} network - "mainnet" or "testnet"
- * @param {import('dashhd').HDWallet} walletKey
- * @param {Number} accountIndex
- * @param {Number} usage - 0 receive, 1 change, 2-16 coinjoin
- * @param {Number} [offset] - the index to start from, or 0
- * @param {Number} [limit=100] - get addresses from offset to offset + N-1, ex: 0-99
+ * @param {AccountID} accountId
+ * @param {XKeyInfo} xkeyInfo
+ * @param {Number} [count=100] - get addresses from offset to offset + N-1, ex: 0-99
  */
-Wallet.getKeyInfos = async function (
-	network,
-	walletKey,
-	accountIndex,
-	usage,
-	offset = 0,
-	limit = 100,
-) {
-	let keyInfos = await Wallet.rawGetKeyInfos(
-		network,
-		walletKey,
-		accountIndex,
-		usage,
-		offset,
-		limit,
-	);
+Wallet.getUnusedKeys = async function (accountId, xkeyInfo, count = 100) {
+	// TODO OT Quick Note: TODO
+	// On lead:
+	// - first check existing utxos again to see if they've been spent
+	// - next check if unused coins now have money
+	// - optimize for happy path, offline path, then online path
 
-	for (let _keyInfo of keyInfos) {
-		let keyInfo = Wallet._mergeKeyInfo(_keyInfo);
+	if (xkeyInfo.accountId !== accountId) {
+		throw new Error(
+			`xkeyInfo.accountId must be set and equal to the desired accountId`,
+		);
+	}
+	let usageState = Wallet._getState(accountId, xkeyInfo.usageKey.index);
+	let indexes = Object.keys(usageState.unused);
 
-		if (keyInfo.satoshisList) {
-			// TODO if this is reused, it must be handled differently
-			Wallet._spendable[keyInfo.address] = keyInfo;
-		} else if (keyInfo.hasBeenUsed) {
-			// do nothing
-		} else if (keyInfo.reservedAt) {
-			// TODO check if reservation is expired
-			// also we need two types of reservations:
-			// - external "made public at"
-			// - internal "reserved at"
-			// anything public (i.e. shared via QR, email, etc) should be considered spent
-		} else {
-			let accountState = Wallet._walletStates[keyInfo.accountId];
-			if (usage === DashHd.RECEIVE) {
-				accountState.receiveUnusedSparse[keyInfo.index] = keyInfo;
-				// accountState.receiveLastUnused = keyInfo.index;
-			} else {
-				accountState.changeUnusedSparse[keyInfo.index] = keyInfo;
-				// accountState.changeLastUnused = keyInfo.index;
-			}
-			Wallet._unused[keyInfo.address] = keyInfo;
-		}
+	let n = indexes.length;
+	let offset = 0; // TODO use cursor to track what we've indexed (not the last indexed)
+	let limit = count;
+
+	for (; n < count; ) {
+		usageState = await Wallet.getKeyStates(accountId, xkeyInfo, offset, limit);
+		indexes = Object.keys(usageState.unused);
+		n = indexes.length;
+		offset = limit - 1;
+		// limit = count - n; // overshoot rather than undershoot
 	}
 
-	return keyInfos;
+	let keyStates = [];
+	indexes = Object.keys(usageState.unused);
+	indexes = indexes.slice(0, count); // account for overshooting
+	for (let key of indexes) {
+		let i = Number(key);
+		let keyInfo = usageState.unused[i];
+		keyStates.push(keyInfo);
+	}
+
+	return keyStates;
 };
 
 /**
  * Get (offline-cached) list of unused receive addresses
- * @param {String} network - "mainnet" or "testnet"
- * @param {import('dashhd').HDWallet} walletKey
- * @param {Number} accountIndex
- * @param {Number} usage - 0 receive, 1 change, 2-16 coinjoin
+ * @param {AccountID} accountId
+ * @param {XKeyInfo} xkeyInfo
  * @param {Number} [offset] - the index to start from, or 0
  * @param {Number} [limit=100] - get addresses from offset to offset + N-1, ex: 0-99
  */
-Wallet.rawGetKeyInfos = async function (
-	network,
-	walletKey,
-	accountIndex,
-	usage,
+Wallet.getKeyStates = async function (
+	accountId,
+	xkeyInfo,
 	offset = 0,
 	limit = 100,
 ) {
-	let walletId = await DashHd.toId(walletKey);
+	let keyInfos = await Wallet.rawGetKeyInfos(xkeyInfo, offset, limit);
 
-	let accountKey = await walletKey.deriveAccount(accountIndex);
-	/** @type {AccountID} */
-	let accountId = await DashHd.toId(accountKey);
+	let usageState = Wallet._getState(accountId, xkeyInfo.usageKey.index);
 
-	// let usage = DashHd.RECEIVE;
-	let xprvKey = await accountKey.deriveXKey(usage);
+	for (let keyInfo of keyInfos) {
+		let keyState = Wallet._mergeKeyState(keyInfo);
+		void Wallet.updateKeyState(usageState, keyState);
+	}
 
+	return usageState;
+};
+
+/**
+ * @param {WalletStateSparse} usageState
+ * @param {KeyState} keyState
+ */
+Wallet.updateKeyState = function (usageState, keyState) {
+	delete usageState.unused[keyState.index];
+	delete Wallet._unused[keyState.address];
+	delete usageState.spendable[keyState.index];
+	delete Wallet._spendable[keyState.address];
+	delete usageState.reserved[keyState.index];
+	delete Wallet._reserved[keyState.address];
+	delete usageState.used[keyState.index];
+	delete Wallet._used[keyState.address];
+
+	if (keyState.satoshisList) {
+		// TODO if this is reused, it must be handled differently
+		usageState.spendable[keyState.index] = keyState;
+		Wallet._spendable[keyState.address] = keyState;
+	} else if (keyState.hasBeenUsed) {
+		usageState.used[keyState.index] = keyState;
+		Wallet._used[keyState.address] = keyState;
+	} else if (keyState.reservedAt) {
+		// TODO check if reservation is expired
+		// also we need two types of reservations:
+		// - external "made public at"
+		// - internal "reserved at"
+		// anything public (i.e. shared via QR, email, etc) should be considered spent
+		usageState.reserved[keyState.index] = keyState;
+		Wallet._reserved[keyState.address] = keyState;
+	} else {
+		usageState.unused[keyState.index] = keyState;
+		Wallet._unused[keyState.address] = keyState;
+	}
+};
+
+/**
+ * Get (offline-cached) list of unused receive addresses
+ * @param {XKeyInfo} xkeyInfo
+ * @param {Number} [offset] - the index to start from, or 0
+ * @param {Number} [limit=100] - get addresses from offset to offset + N-1, ex: 0-99
+ */
+Wallet.rawGetKeyInfos = async function (xkeyInfo, offset = 0, limit = 100) {
 	let keyInfos = [];
-	let end = offset + limit;
+	let end = offset + limit + -1;
 	for (let index = offset; index < end; index += 1) {
 		let addressKey;
 		try {
-			addressKey = await xprvKey.deriveAddress(index);
+			addressKey = await xkeyInfo.usageKey.deriveAddress(index);
 		} catch (e) {
 			end += 1; // to make up for skipping on error
 			continue;
 		}
 
-		let keyInfo = await Wallet._rawGetKeyInfo(
-			network,
-			walletId,
-			accountId,
-			accountIndex,
-			usage,
-			index,
-			addressKey,
-		);
+		let keyInfo = await Wallet._rawGetKeyInfo(xkeyInfo, addressKey);
 		keyInfos.push(keyInfo);
 	}
 
@@ -293,24 +444,12 @@ Wallet.rawGetKeyInfos = async function (
 };
 
 /**
- * @param {String} network - mainnet, testnet
- * @param {String} walletId
- * @param {AccountID} accountId
- * @param {Number} accountIndex
- * @param {Number} usage
- * @param {Number} index
+ * @param {XKeyInfo} xkeyInfo
  * @param {import('dashhd').HDKey} addressKey
- * @returns {Promise<KeyInfoGenerated>}
+ * @returns {Promise<KeyInfo>}
  */
-Wallet._rawGetKeyInfo = async function (
-	network,
-	walletId,
-	accountId,
-	accountIndex,
-	usage,
-	index,
-	addressKey,
-) {
+Wallet._rawGetKeyInfo = async function (xkeyInfo, addressKey) {
+	let usage = xkeyInfo.usageKey.index;
 	let validUsage = usage >= 0 && usage <= 16;
 	if (!validUsage) {
 		let err = new Error(`unknown usage '${usage}'`);
@@ -318,29 +457,29 @@ Wallet._rawGetKeyInfo = async function (
 	}
 
 	let wif = await DashHd.toWif(addressKey.privateKey, {
-		version: network,
+		version: xkeyInfo.network,
 	});
 	let address = await DashHd.toAddr(addressKey.publicKey, {
-		version: network,
+		version: xkeyInfo.network,
 	});
 
 	let coinType = 5;
-	if (network !== "mainnet") {
+	if (xkeyInfo.network !== "mainnet") {
 		coinType = 1;
 	}
-	let hdpath = `m/44'/${coinType}'/${accountIndex}'/${usage}`;
+	let hdpath = `m/44'/${coinType}'/${xkeyInfo.accountIndex}'/${usage}`;
 
 	let pkhBytes = await DashKeys.pubkeyToPkh(addressKey.publicKey);
 	let keyInfo = {
-		walletId: walletId,
-		accountId: accountId,
-		account: accountIndex,
+		walletId: xkeyInfo.walletId ?? "",
+		accountId: xkeyInfo.accountId ?? "",
+		account: xkeyInfo.accountIndex ?? -1,
 		usage: usage,
-		index: index,
+		index: addressKey.index,
 		hdpath: hdpath,
 		address: address, // ex: XrZJJfEKRNobcuwWKTD3bDu8ou7XSWPbc9
 		wif: wif, // ex: XCGKuZcKDjNhx8DaNKK4xwMMNzspaoToT6CafJAbBfQTi57buhLK
-		xkey: addressKey,
+		hdkey: addressKey,
 		privateKey: addressKey.privateKey || null,
 		publicKey: DashKeys.utils.bytesToHex(addressKey.publicKey),
 		pubKeyHash: DashKeys.utils.bytesToHex(pkhBytes),
@@ -353,7 +492,7 @@ const ADDR_PRE = "$_";
 
 Wallet.Addresses = {};
 
-/** @type {Object.<String, KeyInfo>} */
+/** @type {Object.<String, KeyState>} */
 Wallet.Addresses._cache = {};
 
 /**
