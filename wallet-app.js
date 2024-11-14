@@ -691,7 +691,8 @@ import DashP2P from "./dashp2p.js";
 		/** @type {Array<import('dashtx').TxInput>?} */
 		let utxos = null;
 
-		let $coins = $$("[data-name=coin]:checked");
+		/** @type {Array<HTMLInputElement>} */ //@ts-expect-error
+		let $coins = document.querySelectorAll("input[data-name=coin]:checked");
 		if ($coins.length) {
 			inputs = [];
 			for (let $coin of $coins) {
@@ -725,13 +726,13 @@ import DashP2P from "./dashp2p.js";
 		console.log("DEBUG Available balance:", balance);
 		console.log("DEBUG Amount:", amount);
 
-		if (!utxos) {
-			throw new Error(`type fail: utxos not set`);
-		}
 		if (!inputs) {
-			throw new Error(`type fail: inputs not set`);
+			if (!utxos) {
+				throw new Error(`type fail: neither 'inputs' nor 'utxos' is set`);
+			}
 		}
 		let output = { satoshis, address };
+		//@ts-expect-error
 		let draft = await draftWalletTx(utxos, inputs, output);
 
 		amount = output.satoshis / SATS;
