@@ -122,6 +122,16 @@ import Wallet from "./wallet.js";
 	let sessionSalt = "";
 
 	let session = {};
+	session.getChangeAddress = async function () {
+		let keyStates = await Wallet.getUnusedKeys(
+			currentSession.changeKeyInfo.accountId,
+			currentSession.changeKeyInfo,
+			25, // TODO create a function to reserve keys (marked used)
+		);
+		void knuthShuffle(keyStates);
+		let changeAddress = keyStates[0].address;
+		return changeAddress;
+	};
 	session.accountIndex = 0;
 	// session.coinjoinIndex = 0;
 	session.mainnet = {
@@ -177,6 +187,9 @@ import Wallet from "./wallet.js";
 	// let keysMap = {};
 	/** @type {Object.<Number, Object.<String, CoinInfo>>} */
 	let denomsMap = {};
+
+	/** @type {Object.<String, Boolean>} */
+	let foreignAddresses = {};
 
 	/**
 	 * @typedef KeyInfo
@@ -778,6 +791,9 @@ import Wallet from "./wallet.js";
 			window.alert(err.message);
 			throw err;
 		}
+		if (!Wallet.keysByAddress[address]) {
+			foreignAddresses[address] = true;
+		}
 
 		let balance = 0;
 
@@ -883,10 +899,7 @@ import Wallet from "./wallet.js";
 		let burn = 0;
 		msg = memo || message;
 
-		let changeAddress = changeAddrs.shift();
-		if (!changeAddress) {
-			throw new Error("ran out of change addresses (refresh page)");
-		}
+		let changeAddress = await session.getChangeAddress();
 		let signedTx = await App._signMemo({ burn, memo, message, changeAddress });
 		{
 			let confirmed = window.confirm(
@@ -919,7 +932,7 @@ import Wallet from "./wallet.js";
 			memo = null;
 		}
 
-		let changeAddress = changeAddrs[0];
+		let changeAddress = await session.getChangeAddress();
 		let burn = 0;
 		let txInfo = await App._createMemoTx({
 			burn,
@@ -1043,10 +1056,7 @@ import Wallet from "./wallet.js";
 	};
 
 	App._signCollateral = async function (collateral = DashJoin.MIN_COLLATERAL) {
-		let changeAddress = changeAddrs.shift();
-		if (!changeAddress) {
-			throw new Error("ran out of change addresses (refresh page)");
-		}
+		let changeAddress = await session.getChangeAddress();
 		let signedTx = await App._signMemo({
 			burn: 0,
 			memo: "",
@@ -1258,12 +1268,12 @@ import Wallet from "./wallet.js";
 		if (!sessionPhrase) {
 			let phrases = dbGet(`${App.currentNetwork.dbPrefix}wallet-phrases`, []);
 			sessionPhrase = phrases[0];
+			if (!sessionPhrase) {
+				sessionPhrase = await DashPhrase.generate(128);
+				dbSet(`${App.currentNetwork.dbPrefix}wallet-phrases`, [sessionPhrase]);
+			}
 		}
 		sessionSeedBytes = await DashPhrase.toSeed(sessionPhrase, sessionSalt);
-		if (!sessionPhrase) {
-			sessionPhrase = await DashPhrase.generate(128);
-			//dbSet(`${App.currentNetwork.dbPrefix}wallet-phrases`, [primaryPhrase]);
-		}
 
 		App.mainnet.maxConns = dbGet(`max-connections`, App.mainnet.maxConns);
 		App.testnet.maxConns = dbGet(
@@ -1274,14 +1284,11 @@ import Wallet from "./wallet.js";
 		// TODO
 		// this is to maintain backwards compat with deployed version (tesnet)
 		// we should undo it sometime later today
-		currentSession.walletKey = await DashHd.fromSeed(
-			sessionSeedBytes,
-			/*{
-				purpose: App.currentNetwork.purpose,
-				coinType: App.currentNetwork.coinType,
-				versions: App.currentNetwork.hdVersions,
-			}*/
-		);
+		currentSession.walletKey = await DashHd.fromSeed(sessionSeedBytes, {
+			purpose: App.currentNetwork.purpose,
+			coinType: App.currentNetwork.coinType,
+			versions: App.currentNetwork.hdVersions,
+		});
 		currentSession.walletId = await DashHd.toId(currentSession.walletKey);
 
 		denomsMap = {};
@@ -1634,50 +1641,6 @@ import Wallet from "./wallet.js";
 		}
 	}
 
-	// /**
-	//  * @param {String} walletId
-	//  * @param {Number} accountIndex
-	//  * @param {import('dashhd').HDKey} key
-	//  * @param {Number} usage
-	//  * @param {Number} i
-	//  */
-	// async function addKey(walletId, accountIndex, key, usage, i) {
-	// 	let wif = await DashHd.toWif(key.privateKey, { version: App.currentNetwork.network });
-	// 	let address = await DashHd.toAddr(key.publicKey, {
-	// 		version: App.currentNetwork.network,
-	// 	});
-	// 	let hdpath = `m/44'/${App.coinType}'/${accountIndex}'/${usage}`; // accountIndex from step 2
-
-	// 	// TODO put this somewhere safe
-	// 	// let descriptor = `pkh([${walletId}/${partialPath}/0/${index}])`;
-
-	// 	addresses.push(address);
-	// 	if (usage === DashHd.RECEIVE) {
-	// 		receiveAddrs.push(address);
-	// 	} else if (usage === DashHd.CHANGE) {
-	// 		changeAddrs.push(address);
-	// 	} else {
-	// 		let err = new Error(`unknown usage '${usage}'`);
-	// 		throw err;
-	// 	}
-
-	// 	// note: pkh is necessary here because 'getaddressutxos' is unreliable
-	// 	//       and neither 'getaddressdeltas' nor 'getaddressmempool' have 'script'
-	// 	let pkhBytes = await DashKeys.pubkeyToPkh(key.publicKey);
-	// 	keysMap[address] = {
-	// 		walletId: walletId,
-	// 		// account: accountIndex,
-	// 		// usage: usage,
-	// 		index: i,
-	// 		hdpath: hdpath, // useful for multi-account indexing
-	// 		address: address, // XrZJJfEKRNobcuwWKTD3bDu8ou7XSWPbc9
-	// 		wif: wif, // XCGKuZcKDjNhx8DaNKK4xwMMNzspaoToT6CafJAbBfQTi57buhLK
-	// 		key: key,
-	// 		publicKey: DashKeys.utils.bytesToHex(key.publicKey),
-	// 		pubKeyHash: DashKeys.utils.bytesToHex(pkhBytes),
-	// 	};
-	// }
-
 	/**
 	 * @typedef CJSlot
 	 * @prop {Number} denom
@@ -2000,23 +1963,6 @@ import Wallet from "./wallet.js";
 	 * @param {Array<String>} addresses
 	 */
 	async function updateDeltas(addresses) {
-		// for (let address of addrs) {
-		// 	let info = dbGet(address);
-		// 	let isSpent = info && info.deltas?.length && !info.balance;
-		// 	if (!isSpent) {
-		// 		continue; // used address (only check on manual sync)
-		// 	}
-
-		// 	let knownSpent = spentAddrs.includes(address);
-		// 	if (!knownSpent) {
-		// 		spentAddrs.push(address);
-		// 	}
-		// 	removeElement(addrs, info.address);
-		// 	removeElement(addresses, info.address);
-		// 	removeElement(receiveAddrs, info.address);
-		// 	removeElement(changeAddrs, info.address);
-		// }
-
 		let deltaLists = await Promise.all([
 			// See
 			// - <https://trpc.digitalcash.dev/#?method=getaddressdeltas&params=[{"addresses":["ybLxVb3aspSHFgxM1qTyuBSXnjAqLFEG8P"]}]&submit>
@@ -2029,11 +1975,10 @@ import Wallet from "./wallet.js";
 		let deltaList = deltaLists[0].concat(deltaLists[1]);
 		// for (let deltaList of deltaLists) {
 		for (let delta of deltaList) {
+			if (foreignAddresses[delta.address]) {
+				continue;
+			}
 			// console.log("DEBUG delta", delta);
-			// removeElement(addrs, delta.address);
-			// removeElement(addresses, delta.address);
-			// removeElement(receiveAddrs, delta.address);
-			// removeElement(changeAddrs, delta.address);
 			if (!deltasMap[delta.address]) {
 				deltasMap[delta.address] = {
 					balance: 0,
