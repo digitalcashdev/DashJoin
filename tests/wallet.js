@@ -3,15 +3,26 @@ import Wallet from "../wallet.js";
 import DashPhrase from "dashphrase";
 import DashHd from "dashhd";
 
+// casino reveal crop open ordinary garment spy pizza clown exercise poem enjoy
 let phrase =
 	"own found reform rapid phrase change oxygen spend amazing hungry tenant claw";
 let salt = "";
 
 async function test() {
 	let network = "testnet";
+	let versions = DashHd.MAINNET;
+	let coinType = Wallet.COINTYPE_DASH;
+	if (network !== "mainnet") {
+		versions = DashHd.TESTNET;
+		coinType = Wallet.COINTYPE_TESTNET;
+	}
 
 	let seedBytes = await DashPhrase.toSeed(phrase, salt);
-	let walletKey = await DashHd.fromSeed(seedBytes);
+	let walletKey = await DashHd.fromSeed(seedBytes, {
+		purpose: 44, // BIP-44 (default)
+		// coinType, // TODO fix and then unbreak tests
+		versions,
+	});
 	let accountIndex = 0;
 	let accountInfo = await Wallet.rawGetAccountKey(
 		network,
@@ -107,7 +118,7 @@ async function test() {
 			}
 		}
 	}
-    console.info(`PASS`);
+	console.info(`PASS`);
 }
 
 test().catch(function (err) {

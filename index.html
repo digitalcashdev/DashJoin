@@ -873,7 +873,7 @@ change:    0.00000000 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx        1</code></pre>
                           App.$saveWallet(
                             document.querySelector('[name=walletPhrase]').value,
                             document.querySelector('[name=phraseSalt]').value,
-                            document.querySelector('[name=walletAccount]').value,
+                            document.querySelector('[name=primaryAccount]').value,
                           );
                         "
 					>
@@ -1071,6 +1071,15 @@ change:    0.00000000 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx        1</code></pre>
 			};
 		</script>
 
+		<script type="importmap">
+			{
+				"imports": {
+					"dashphrase": "./node_modules/dashhd/dashphrase.js",
+					"dashhd": "./node_modules/dashhd/dashhd.js",
+					"dashkeys": "./node_modules/dashkeys/dashkeys.js"
+				}
+			}
+		</script>
 		<script type="module">
 			import $SemTabs from "./semantic-tabs.js";
 

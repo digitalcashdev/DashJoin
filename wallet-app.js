@@ -123,20 +123,21 @@ import Wallet from "./wallet.js";
 
 	let sessionSalt = "";
 
-	/** @type {Array<String>} */
-	let addresses = [];
-	/** @type {Array<String>} */
-	let changeAddrs = [];
-	/** @type {Array<String>} */
-	let receiveAddrs = [];
-	/** @type {Array<String>} */
-	let spentAddrs = [];
-	/** @type {Array<String>} */
-	let spendableAddrs = [];
+	// /** @type {Array<String>} */
+	// let addresses = [];
+	// /** @type {Array<String>} */
+	// let changeAddrs = [];
+	// /** @type {Array<String>} */
+	// let receiveAddrs = [];
+	// /** @type {Array<String>} */
+	// let spentAddrs = [];
+	// /** @type {Array<String>} */
+	// let spendableAddrs = [];
+
 	/** @type {Object.<String, AddressActivity>} */
 	let deltasMap = {};
-	/** @type {Object.<String, KeyInfo>} */
-	let keysMap = {};
+	// /** @type {Object.<String, KeyInfo>} */
+	// let keysMap = {};
 	/** @type {Object.<Number, Object.<String, CoinInfo>>} */
 	let denomsMap = {};
 
@@ -261,12 +262,15 @@ import Wallet from "./wallet.js";
 				// address = await DashKeys.pkhToAddr(pkhBytes, { version: App.network });
 			}
 
-			let yourKeyData = keysMap[address];
+			let keyState = Wallet.keysByAddress[address];
+			return keyState.privateKey;
 
-			let privKeyBytes = await DashKeys.wifToPrivKey(yourKeyData.wif, {
-				version: App.network,
-			});
-			return privKeyBytes;
+			// if (!keyState.privateKey) {
+			// 	let privKeyBytes = await DashKeys.wifToPrivKey(keyState.wif, {
+			// 		version: App.network,
+			// 	});
+			//  return privKeyBytes;
+			// }
 		},
 
 		/**
@@ -351,12 +355,12 @@ import Wallet from "./wallet.js";
 			info.balance = DashTx.sum(info.deltas);
 
 			for (let coin of info.deltas) {
-				let addressInfo = keysMap[coin.address];
+				let keyState = Wallet.keysByAddress[coin.address];
 				Object.assign(coin, {
 					outputIndex: coin.index,
 					denom: DashJoin.getDenom(coin.satoshis),
-					publicKey: addressInfo.publicKey,
-					pubKeyHash: addressInfo.pubKeyHash,
+					publicKey: keyState.publicKey,
+					pubKeyHash: keyState.pubKeyHash,
 				});
 
 				if (coin.reserved > 0) {
@@ -487,7 +491,11 @@ import Wallet from "./wallet.js";
 		dbSet(`${App.dbPrefix}wallet-phrases`, phrases);
 
 		let primarySeedBytes = await DashPhrase.toSeed(phrase, sessionSalt);
-		let walletKey = await DashHd.fromSeed(primarySeedBytes);
+		let walletKey = await DashHd.fromSeed(primarySeedBytes, {
+			purpose: 44, // BIP-44 (default)
+			coinType: App.coinType,
+			versions: App.hdVersions,
+		});
 		let walletId = await DashHd.toId(walletKey);
 		dbSet(`wallet-${walletId}-account-index`, accountIndex);
 
@@ -540,6 +548,9 @@ import Wallet from "./wallet.js";
 		// $('[name="phraseSalt"]').type = "password"; // delayed to avoid pw prompt
 	};
 
+	/** @type {import('./wallet.js').XKeyInfo} */ //@ts-expect-error
+	App._receiveKeyInfo = null;
+
 	/**
 	 * @param {String} phrase
 	 * @param {String} sessionSalt
@@ -554,50 +565,107 @@ import Wallet from "./wallet.js";
 		lastReceiveIndex = 0,
 		lastChangeIndex = 0,
 	) {
-		// reset all key & address state
-		addresses = [];
-		changeAddrs = [];
-		receiveAddrs = [];
-		spentAddrs = [];
-		spendableAddrs = [];
+		// // reset all key & address state
+		// addresses = [];
+		// changeAddrs = [];
+		// receiveAddrs = [];
+		// spentAddrs = [];
+		// spendableAddrs = [];
 		deltasMap = {};
-		// keysMap = {}; // this is reference-only
+		// // keysMap = {}; // this is reference-only
 
 		let primarySeedBytes = await DashPhrase.toSeed(phrase, sessionSalt);
-		let walletKey = await DashHd.fromSeed(primarySeedBytes);
-		let walletId = await DashHd.toId(walletKey);
-
-		let accountKey = await walletKey.deriveAccount(0, {
+		let walletKey = await DashHd.fromSeed(primarySeedBytes, {
 			purpose: 44, // BIP-44 (default)
 			coinType: App.coinType,
 			versions: App.hdVersions,
 		});
-		let xprvReceiveKey = await accountKey.deriveXKey(DashHd.RECEIVE);
-		let xprvChangeKey = await accountKey.deriveXKey(DashHd.CHANGE);
 
-		let receiveEnd = lastReceiveIndex + 50;
-		for (let i = lastReceiveIndex; i < receiveEnd; i += 1) {
-			let receiveKey;
-			try {
-				receiveKey = await xprvReceiveKey.deriveAddress(i); // xprvKey from step 2
-			} catch (e) {
-				receiveEnd += 1; // to make up for skipping on error
-				continue;
+		let accountInfo = await Wallet.rawGetAccountKey(
+			App.network,
+			walletKey,
+			accountIndex,
+		);
+		console.log(
+			`DEBUG ACCOUNT_KEY_INFO`,
+			App.coinType,
+			accountIndex,
+			accountInfo,
+		);
+
+		// TODO Prioritize
+		// - spendable keys first
+		// - unused receive keys next
+		// - unused change & coinjoin keys
+
+		/** @type {Object.<String, import('./wallet.js').KeyState>} */
+		let verifiedUnused = {};
+		let checkableAddrs = [];
+
+		let usages = [
+			{
+				usage: DashHd.RECEIVE,
+				count: 100,
+			},
+			{ usage: DashHd.CHANGE, count: 100 },
+			{ usage: Wallet.USAGE_COINJOIN, count: 300 },
+		];
+		for (let u of usages) {
+			let usageKeyInfo = await Wallet.rawGetUsageKey(
+				App.network,
+				walletKey,
+				accountIndex,
+				u.usage,
+			);
+			if (u.usage === DashHd.RECEIVE) {
+				App._receiveKeyInfo = usageKeyInfo;
 			}
-			await addKey(walletId, accountIndex, receiveKey, DashHd.RECEIVE, i);
+			console.log(`DEBUG USAGE_KEY_INFO`, App.coinType, usageKeyInfo);
+
+			let keyStates = await Wallet.getUnusedKeys(
+				accountInfo.accountId,
+				usageKeyInfo,
+				u.count,
+			);
+			for (let keyState of keyStates) {
+				if (!verifiedUnused[keyState.address]) {
+					checkableAddrs.push(keyState.address);
+				}
+			}
 		}
 
-		let changeEnd = lastChangeIndex + 50;
-		for (let i = lastChangeIndex; i < changeEnd; i += 1) {
-			let changeKey;
-			try {
-				changeKey = await xprvChangeKey.deriveAddress(i); // xprvKey from step 2
-			} catch (e) {
-				changeEnd += 1; // to make up for skipping on error
-				continue;
-			}
-			await addKey(walletId, accountIndex, changeKey, DashHd.CHANGE, i);
-		}
+		//
+		// TODO
+		// cache negative result when addresses without deltas
+		// do NOT come back in the list of deltas
+		//
+
+		// let xprvReceiveKey = await accountKey.deriveXKey(DashHd.RECEIVE);
+		// let xprvChangeKey = await accountKey.deriveXKey(DashHd.CHANGE);
+
+		// let receiveEnd = lastReceiveIndex + 50;
+		// for (let i = lastReceiveIndex; i < receiveEnd; i += 1) {
+		// 	let receiveKey;
+		// 	try {
+		// 		receiveKey = await xprvReceiveKey.deriveAddress(i); // xprvKey from step 2
+		// 	} catch (e) {
+		// 		receiveEnd += 1; // to make up for skipping on error
+		// 		continue;
+		// 	}
+		// 	await addKey(walletId, accountIndex, receiveKey, DashHd.RECEIVE, i);
+		// }
+
+		// let changeEnd = lastChangeIndex + 50;
+		// for (let i = lastChangeIndex; i < changeEnd; i += 1) {
+		// 	let changeKey;
+		// 	try {
+		// 		changeKey = await xprvChangeKey.deriveAddress(i); // xprvKey from step 2
+		// 	} catch (e) {
+		// 		changeEnd += 1; // to make up for skipping on error
+		// 		continue;
+		// 	}
+		// 	await addKey(walletId, accountIndex, changeKey, DashHd.CHANGE, i);
+		// }
 	};
 
 	/** @param {String} address */
@@ -1003,7 +1071,7 @@ import Wallet from "./wallet.js";
 
 		// See https://github.com/dashhive/DashTx.js/pull/77
 		for (let input of draftTx.inputs) {
-			let addressInfo = keysMap[input.address];
+			let addressInfo = Wallet.keysByAddress[input.address];
 			Object.assign(input, {
 				publicKey: addressInfo.publicKey,
 				pubKeyHash: addressInfo.pubKeyHash,
@@ -1051,15 +1119,15 @@ import Wallet from "./wallet.js";
 				throw new Error(`developer error: no input.address`);
 			}
 			updatedAddrs.push(input.address);
-			let knownSpent = spentAddrs.includes(input.address);
-			if (!knownSpent) {
-				spentAddrs.push(input.address);
-			}
-			removeElement(addresses, input.address);
-			removeElement(receiveAddrs, input.address);
-			removeElement(changeAddrs, input.address);
+			// let knownSpent = spentAddrs.includes(input.address);
+			// if (!knownSpent) {
+			// 	spentAddrs.push(input.address);
+			// }
+			// removeElement(addresses, input.address);
+			// removeElement(receiveAddrs, input.address);
+			// removeElement(changeAddrs, input.address);
 			delete deltasMap[input.address];
-			dbSet(input.address, null);
+			// dbSet(input.address, null);
 		}
 		for (let output of signedTx.outputs) {
 			if (!output.address) {
@@ -1071,12 +1139,12 @@ import Wallet from "./wallet.js";
 				continue;
 			}
 			updatedAddrs.push(output.address);
-			removeElement(addresses, output.address);
-			removeElement(receiveAddrs, output.address);
-			removeElement(changeAddrs, output.address);
+			// removeElement(addresses, output.address);
+			// removeElement(receiveAddrs, output.address);
+			// removeElement(changeAddrs, output.address);
 
 			delete deltasMap[output.address];
-			dbSet(output.address, null);
+			// dbSet(output.address, null);
 		}
 		await updateDeltas(updatedAddrs);
 
@@ -1114,8 +1182,28 @@ import Wallet from "./wallet.js";
 	}
 
 	function renderAddresses() {
-		$("[data-id=spent-count]").textContent = spentAddrs.length.toString();
-		$("[data-id=spent]").textContent = spentAddrs.join("\n");
+		let usedAddrs = Object.keys(Wallet._used);
+		$("[data-id=spent-count]").textContent = usedAddrs.length.toString();
+		$("[data-id=spent]").textContent = usedAddrs.join("\n");
+
+		let receiveAddrs = [];
+		let changeAddrs = [];
+		let unusedAddrs = Object.keys(Wallet._unused);
+		for (let address of unusedAddrs) {
+			let keyState = Wallet.keysByAddress[address];
+			if (!keyState) {
+				console.log(address, Wallet);
+				continue;
+			}
+
+			if (keyState.usage === DashHd.RECEIVE) {
+				receiveAddrs.push(address);
+			} else if (keyState.usage === DashHd.CHANGE) {
+				changeAddrs.push(address);
+			} else {
+				// nothing yet, coinjoin later
+			}
+		}
 		$("[data-id=receive-addresses]").textContent = receiveAddrs.join("\n");
 		$("[data-id=change-addresses]").textContent = changeAddrs.join("\n");
 	}
@@ -1179,7 +1267,11 @@ import Wallet from "./wallet.js";
 		}
 
 		let primarySeedBytes = await DashPhrase.toSeed(primaryPhrase, sessionSalt);
-		let walletKey = await DashHd.fromSeed(primarySeedBytes);
+		let walletKey = await DashHd.fromSeed(primarySeedBytes, {
+			purpose: 44, // BIP-44 (default)
+			coinType: App.coinType,
+			versions: App.hdVersions,
+		});
 		let walletId = await DashHd.toId(walletKey);
 		let primaryIndex = await dbGet(`wallet-${walletId}-primary-index`, 0);
 		let coinjoinIndex = await dbGet(`wallet-${walletId}-coinjoin-index`, 1);
@@ -1194,6 +1286,7 @@ import Wallet from "./wallet.js";
 		);
 		await App._walletDerive(primaryPhrase, sessionSalt, primaryIndex);
 
+		let addresses = Object.keys(Wallet.keysByAddress);
 		await updateDeltas(addresses);
 		renderAddresses();
 		renderCoins();
@@ -1521,49 +1614,49 @@ import Wallet from "./wallet.js";
 		}
 	}
 
-	/**
-	 * @param {String} walletId
-	 * @param {Number} accountIndex
-	 * @param {import('dashhd').HDKey} key
-	 * @param {Number} usage
-	 * @param {Number} i
-	 */
-	async function addKey(walletId, accountIndex, key, usage, i) {
-		let wif = await DashHd.toWif(key.privateKey, { version: App.network });
-		let address = await DashHd.toAddr(key.publicKey, {
-			version: App.network,
-		});
-		let hdpath = `m/44'/${App.coinType}'/${accountIndex}'/${usage}`; // accountIndex from step 2
+	// /**
+	//  * @param {String} walletId
+	//  * @param {Number} accountIndex
+	//  * @param {import('dashhd').HDKey} key
+	//  * @param {Number} usage
+	//  * @param {Number} i
+	//  */
+	// async function addKey(walletId, accountIndex, key, usage, i) {
+	// 	let wif = await DashHd.toWif(key.privateKey, { version: App.network });
+	// 	let address = await DashHd.toAddr(key.publicKey, {
+	// 		version: App.network,
+	// 	});
+	// 	let hdpath = `m/44'/${App.coinType}'/${accountIndex}'/${usage}`; // accountIndex from step 2
 
-		// TODO put this somewhere safe
-		// let descriptor = `pkh([${walletId}/${partialPath}/0/${index}])`;
+	// 	// TODO put this somewhere safe
+	// 	// let descriptor = `pkh([${walletId}/${partialPath}/0/${index}])`;
 
-		addresses.push(address);
-		if (usage === DashHd.RECEIVE) {
-			receiveAddrs.push(address);
-		} else if (usage === DashHd.CHANGE) {
-			changeAddrs.push(address);
-		} else {
-			let err = new Error(`unknown usage '${usage}'`);
-			throw err;
-		}
+	// 	addresses.push(address);
+	// 	if (usage === DashHd.RECEIVE) {
+	// 		receiveAddrs.push(address);
+	// 	} else if (usage === DashHd.CHANGE) {
+	// 		changeAddrs.push(address);
+	// 	} else {
+	// 		let err = new Error(`unknown usage '${usage}'`);
+	// 		throw err;
+	// 	}
 
-		// note: pkh is necessary here because 'getaddressutxos' is unreliable
-		//       and neither 'getaddressdeltas' nor 'getaddressmempool' have 'script'
-		let pkhBytes = await DashKeys.pubkeyToPkh(key.publicKey);
-		keysMap[address] = {
-			walletId: walletId,
-			// account: accountIndex,
-			// usage: usage,
-			index: i,
-			hdpath: hdpath, // useful for multi-account indexing
-			address: address, // XrZJJfEKRNobcuwWKTD3bDu8ou7XSWPbc9
-			wif: wif, // XCGKuZcKDjNhx8DaNKK4xwMMNzspaoToT6CafJAbBfQTi57buhLK
-			key: key,
-			publicKey: DashKeys.utils.bytesToHex(key.publicKey),
-			pubKeyHash: DashKeys.utils.bytesToHex(pkhBytes),
-		};
-	}
+	// 	// note: pkh is necessary here because 'getaddressutxos' is unreliable
+	// 	//       and neither 'getaddressdeltas' nor 'getaddressmempool' have 'script'
+	// 	let pkhBytes = await DashKeys.pubkeyToPkh(key.publicKey);
+	// 	keysMap[address] = {
+	// 		walletId: walletId,
+	// 		// account: accountIndex,
+	// 		// usage: usage,
+	// 		index: i,
+	// 		hdpath: hdpath, // useful for multi-account indexing
+	// 		address: address, // XrZJJfEKRNobcuwWKTD3bDu8ou7XSWPbc9
+	// 		wif: wif, // XCGKuZcKDjNhx8DaNKK4xwMMNzspaoToT6CafJAbBfQTi57buhLK
+	// 		key: key,
+	// 		publicKey: DashKeys.utils.bytesToHex(key.publicKey),
+	// 		pubKeyHash: DashKeys.utils.bytesToHex(pkhBytes),
+	// 	};
+	// }
 
 	/**
 	 * @typedef CJSlot
@@ -1717,18 +1810,18 @@ import Wallet from "./wallet.js";
 	App.denominateCoins = async function (event) {
 		event.preventDefault();
 
-		{
-			let addrs = Object.keys(deltasMap);
-			spendableAddrs.length = 0;
+		// {
+		// 	let addrs = Object.keys(deltasMap);
+		// 	spendableAddrs.length = 0;
 
-			for (let address of addrs) {
-				let info = deltasMap[address];
-				if (info.balance === 0) {
-					continue;
-				}
-				spendableAddrs.push(address);
-			}
-		}
+		// 	for (let address of addrs) {
+		// 		let info = deltasMap[address];
+		// 		if (info.balance === 0) {
+		// 			continue;
+		// 		}
+		// 		spendableAddrs.push(address);
+		// 	}
+		// }
 
 		let slots = dbGet("cash-drawer-control");
 
@@ -1884,59 +1977,84 @@ import Wallet from "./wallet.js";
 	}
 
 	/**
-	 * @param {Array<String>} addrs
+	 * @param {Array<String>} addresses
 	 */
-	async function updateDeltas(addrs) {
-		for (let address of addrs) {
-			let info = dbGet(address);
-			let isSpent = info && info.deltas?.length && !info.balance;
-			if (!isSpent) {
-				continue; // used address (only check on manual sync)
-			}
+	async function updateDeltas(addresses) {
+		// for (let address of addrs) {
+		// 	let info = dbGet(address);
+		// 	let isSpent = info && info.deltas?.length && !info.balance;
+		// 	if (!isSpent) {
+		// 		continue; // used address (only check on manual sync)
+		// 	}
 
-			let knownSpent = spentAddrs.includes(address);
-			if (!knownSpent) {
-				spentAddrs.push(address);
-			}
-			removeElement(addrs, info.address);
-			removeElement(addresses, info.address);
-			removeElement(receiveAddrs, info.address);
-			removeElement(changeAddrs, info.address);
-		}
+		// 	let knownSpent = spentAddrs.includes(address);
+		// 	if (!knownSpent) {
+		// 		spentAddrs.push(address);
+		// 	}
+		// 	removeElement(addrs, info.address);
+		// 	removeElement(addresses, info.address);
+		// 	removeElement(receiveAddrs, info.address);
+		// 	removeElement(changeAddrs, info.address);
+		// }
 
 		let deltaLists = await Promise.all([
 			// See
 			// - <https://trpc.digitalcash.dev/#?method=getaddressdeltas&params=[{"addresses":["ybLxVb3aspSHFgxM1qTyuBSXnjAqLFEG8P"]}]&submit>
 			// - <https://trpc.digitalcash.dev/#?method=getaddressmempool&params=[{"addresses":["ybLxVb3aspSHFgxM1qTyuBSXnjAqLFEG8P"]}]&submit>
-			await App.rpc("getaddressdeltas", { addresses: addrs }),
+			await App.rpc("getaddressdeltas", { addresses: addresses }),
 			// TODO check for proof of instantsend / acceptance
-			await App.rpc("getaddressmempool", { addresses: addrs }),
+			await App.rpc("getaddressmempool", { addresses: addresses }),
 		]);
-		for (let deltaList of deltaLists) {
-			for (let delta of deltaList) {
-				console.log("DEBUG delta", delta);
-				removeElement(addrs, delta.address);
-				removeElement(addresses, delta.address);
-				removeElement(receiveAddrs, delta.address);
-				removeElement(changeAddrs, delta.address);
-				if (!deltasMap[delta.address]) {
-					deltasMap[delta.address] = { balance: 0, deltas: [] };
-				}
-				deltasMap[delta.address].deltas.push(delta);
-				deltasMap[delta.address].balance += delta.satoshis;
+
+		let deltaList = deltaLists[0].concat(deltaLists[1]);
+		// for (let deltaList of deltaLists) {
+		for (let delta of deltaList) {
+			// console.log("DEBUG delta", delta);
+			// removeElement(addrs, delta.address);
+			// removeElement(addresses, delta.address);
+			// removeElement(receiveAddrs, delta.address);
+			// removeElement(changeAddrs, delta.address);
+			if (!deltasMap[delta.address]) {
+				deltasMap[delta.address] = {
+					balance: 0,
+					deltas: [],
+					credits: [],
+					debits: [],
+				};
 			}
+			deltasMap[delta.address].deltas.push(delta);
+			if (delta.statoshis > 0) {
+				deltasMap[delta.address].credits.push(delta);
+			} else if (delta.satoshis < 0) {
+				deltasMap[delta.address].debits.push(delta);
+			} else {
+				// I dunno...
+			}
+
+			// TODO we'll need to also explicitly check utxos if
+			// there's a positive balance and debits on the same coin
+			deltasMap[delta.address].balance += delta.satoshis;
 		}
+		// }
 	}
 
-	function renderCoins() {
-		let addrs = Object.keys(deltasMap);
-		for (let addr of addrs) {
-			let info = deltasMap[addr];
-			dbSet(addr, info);
-		}
+	async function renderCoins() {
+		// let addrs = Object.keys(deltasMap);
+		// for (let addr of addrs) {
+		// 	let info = deltasMap[addr];
+		// 	dbSet(addr, info);
+		// }
 
 		let utxos = getAllUtxos();
 		utxos.sort(sortCoinsByDenomAndSatsDesc);
+
+		let keyStates = await Wallet.getUnusedKeys(
+			App._receiveKeyInfo.accountId,
+			App._receiveKeyInfo,
+			1, // TODO reserve
+		);
+		let firstReceiveKeyInfo = keyStates[0];
+		console.log(`DEBUG firstReceiveKeyInfo`, firstReceiveKeyInfo);
 
 		requestAnimationFrame(function () {
 			let elementStrs = [];
@@ -1985,9 +2103,8 @@ import Wallet from "./wallet.js";
 			}
 
 			let [dashAmount, dustAmount] = App._splitBalance(totalBalance);
-			let loadAddr = receiveAddrs[0]; // TODO reserve
 			let addrQr = new QRCode({
-				content: `dash:${loadAddr}?`, // leave amount blank
+				content: `dash:${firstReceiveKeyInfo.address}?`, // leave amount blank
 				padding: 4,
 				width: 256,
 				height: 256,
@@ -2001,10 +2118,11 @@ import Wallet from "./wallet.js";
 				`${dashAmount} DASH + ${dustAmount} dust`;
 			$('[data-id="dash-total"]').textContent = dashAmount;
 			$('[data-id="dust-total"]').textContent = dustAmount;
-			$('[data-id="load-addr"]').textContent = loadAddr;
+			$('[data-id="load-addr"]').textContent = firstReceiveKeyInfo.address;
 			$('[data-id="load-qr"]').textContent = "";
 			$('[data-id="load-qr"]').insertAdjacentHTML("beforeend", addrSvg);
-			$('[data-id="load-balance-button"]').dataset.address = loadAddr;
+			$('[data-id="load-balance-button"]').dataset.address =
+				firstReceiveKeyInfo.address;
 			$('[data-id="load-balance"]').hidden = false;
 		});
 	}
@@ -2552,6 +2670,7 @@ import Wallet from "./wallet.js";
 
 	async function main() {
 		let network = await dbGet("network", MAINNET);
+		await Wallet.init();
 
 		$(`[name="dashNetwork"][value="${network}"]`).checked = true;
 		//@ts-expect-error

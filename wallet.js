@@ -1,17 +1,17 @@
 // import DashPhrase from "dashphrase";
-import DashHd from "dashhd";
-import DashKeys from "dashkeys";
+// import DashHd from "dashhd";
+// import DashKeys from "dashkeys";
 
 ////@ts-expect-error
 //let DashPhrase = window.DashPhrase;
 
 /** @type {import('dashhd')} */
-////@ts-expect-error
-//let DashHd = globalThis.DashHd || require("dashhd");
+//@ts-expect-error
+let DashHd = globalThis.DashHd || require("dashhd");
 
 /** @type {import('dashkeys')} */
-////@ts-expect-error
-//let DashKeys = globalThis.DashKeys || require("dashkeys");
+//@ts-expect-error
+let DashKeys = globalThis.DashKeys || require("dashkeys");
 
 ////@ts-expect-error
 //let DashTx = window.DashTx;
@@ -42,7 +42,9 @@ import DashKeys from "dashkeys";
  * @typedef KeyStateMini
  * @prop {Array<Number>} satoshisList
  * @prop {Number} reservedAt
+ * @prop {Number} sharedAt
  * @prop {Boolean} hasBeenUsed
+ * @prop {Number} updatedAt
  */
 
 /**
@@ -54,8 +56,6 @@ import DashKeys from "dashkeys";
  * @prop {import('dashhd').HDXKey} usageKey
  */
 
-// TODO XXX place accountId on accountKey canonically in DashHD
-// https://github.com/dashhive/DashHD.js/issues/40
 /**
  * @typedef AccountInfo
  * @prop {String} network
@@ -69,11 +69,32 @@ const USAGE_CHANGE = DashHd.CHANGE;
 const USAGE_COINJOIN = 2;
 const ROUNDS_TARGET = 16;
 
+const COINTYPE_DASH = 5;
+const COINTYPE_TESTNET = 1; // testnet (for all coins)
+
+// App.network = MAINNET;
+// App.coinType = COINTYPE_DASH;
+// App.hdVersions = DashHd.MAINNET;
+
 let Wallet = {};
 
 Wallet.USAGE_RECEIVE = USAGE_RECEIVE;
 Wallet.USAGE_CHANGE = USAGE_CHANGE;
 Wallet.USAGE_COINJOIN = USAGE_COINJOIN;
+Wallet.COINTYPE_DASH = COINTYPE_DASH;
+Wallet.COINTYPE_MAINNET = COINTYPE_DASH;
+Wallet.COINTYPE_TESTNET = COINTYPE_TESTNET; // testnet (for all coins)
+
+/** @type {Object.<Address, KeyState>} */
+Wallet.keysByAddress = {};
+
+Wallet._emptyKeyStateMini = {
+	satoshisList: [],
+	hasBeenUsed: false,
+	reservedAt: 0,
+	sharedAt: 0,
+	updatedAt: 0,
+};
 
 /** @typedef {String} Base58Check */
 /** @typedef {String} Hex */
@@ -159,15 +180,9 @@ Wallet.init = async function () {
  * @param {String} network
  * @param {import('dashhd').HDWallet} walletKey
  * @param {Number} accountIndex
- * @param {Usage} usage - DashHd.RECEIVE, DashHd.RECEIVE, Wallet.USAGE_COINJOIN
  * @returns {Promise<AccountInfo>}
  */
-Wallet.rawGetAccountKey = async function (
-	network,
-	walletKey,
-	accountIndex,
-	usage,
-) {
+Wallet.rawGetAccountKey = async function (network, walletKey, accountIndex) {
 	let walletId = await DashHd.toId(walletKey);
 	/** @type {import('dashhd').HDAccount} */
 	let accountKey = await walletKey.deriveAccount(accountIndex);
@@ -327,7 +342,10 @@ Wallet.getCoinJoinAddressFor = async function (
  * @param {KeyInfo} keyInfo
  */
 Wallet._mergeKeyState = function (keyInfo) {
-	let _cacheInfo = Wallet.Addresses._cache[keyInfo.address] || {};
+	let _cacheInfo =
+		Wallet.Addresses._cache[keyInfo.address] ||
+		globalThis.structuredClone(Wallet._emptyKeyStateMini);
+
 	Wallet.Addresses._cache[keyInfo.address] = Object.assign(_cacheInfo, keyInfo);
 	return _cacheInfo;
 };
@@ -427,6 +445,8 @@ Wallet.getKeyStates = async function (
  * @param {KeyState} keyState
  */
 Wallet.updateKeyState = function (usageState, keyState) {
+	Wallet.keysByAddress[keyState.address] = keyState;
+
 	delete usageState.unused[keyState.index];
 	delete Wallet._unused[keyState.address];
 	delete usageState.spendable[keyState.index];
@@ -436,14 +456,14 @@ Wallet.updateKeyState = function (usageState, keyState) {
 	delete usageState.used[keyState.index];
 	delete Wallet._used[keyState.address];
 
-	if (keyState.satoshisList) {
+	if (keyState.satoshisList?.length) {
 		// TODO if this is reused, it must be handled differently
 		usageState.spendable[keyState.index] = keyState;
 		Wallet._spendable[keyState.address] = keyState;
 	} else if (keyState.hasBeenUsed) {
 		usageState.used[keyState.index] = keyState;
 		Wallet._used[keyState.address] = keyState;
-	} else if (keyState.reservedAt) {
+	} else if (keyState.reservedAt || keyState.sharedAt) {
 		// TODO check if reservation is expired
 		// also we need two types of reservations:
 		// - external "made public at"
@@ -590,25 +610,21 @@ Wallet.Addresses.all = async function () {
 			continue;
 		}
 
-		// TODO represent coinjoin
-		let keyState = {
-			satoshisList: [],
-			hasBeenUsed: false,
-			reservedAt: 0,
-		};
+		// TODO represent coinjoin (I already forgot for what)
+		let keyStateMini = globalThis.structuredClone(Wallet._emptyKeyStateMini);
 		let data = JSON.parse(json);
 		if (data.length) {
-			keyState.satoshisList = data;
+			keyStateMini.satoshisList = data;
 		} else if (data > 0) {
-			keyState.reservedAt = data;
+			keyStateMini.reservedAt = data;
 		} else if (data <= 0) {
-			keyState.hasBeenUsed = true;
+			keyStateMini.hasBeenUsed = true;
 		} else {
 			throw new Error(`corrupted data for '${key}'`);
 		}
 
 		let address = key.slice(ADDR_PRE.length);
-		results[address] = keyState;
+		results[address] = keyStateMini;
 	}
 
 	return results;
