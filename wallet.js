@@ -1,9 +1,18 @@
+// import DashPhrase from "dashphrase";
+import DashHd from "dashhd";
+import DashKeys from "dashkeys";
+
 ////@ts-expect-error
 //let DashPhrase = window.DashPhrase;
-//@ts-expect-error
-let DashHd = window.DashHd;
-//@ts-expect-error
-let DashKeys = window.DashKeys;
+
+/** @type {import('dashhd')} */
+////@ts-expect-error
+//let DashHd = globalThis.DashHd || require("dashhd");
+
+/** @type {import('dashkeys')} */
+////@ts-expect-error
+//let DashKeys = globalThis.DashKeys || require("dashkeys");
+
 ////@ts-expect-error
 //let DashTx = window.DashTx;
 ////@ts-expect-error
@@ -151,6 +160,33 @@ Wallet.init = async function () {
  * @param {import('dashhd').HDWallet} walletKey
  * @param {Number} accountIndex
  * @param {Usage} usage - DashHd.RECEIVE, DashHd.RECEIVE, Wallet.USAGE_COINJOIN
+ * @returns {Promise<AccountInfo>}
+ */
+Wallet.rawGetAccountKey = async function (
+	network,
+	walletKey,
+	accountIndex,
+	usage,
+) {
+	let walletId = await DashHd.toId(walletKey);
+	/** @type {import('dashhd').HDAccount} */
+	let accountKey = await walletKey.deriveAccount(accountIndex);
+	/** @type {AccountID} */
+	let accountId = await DashHd.toId(accountKey);
+
+	return {
+		network,
+		walletId,
+		accountId,
+		accountKey,
+	};
+};
+
+/**
+ * @param {String} network
+ * @param {import('dashhd').HDWallet} walletKey
+ * @param {Number} accountIndex
+ * @param {Usage} usage - DashHd.RECEIVE, DashHd.RECEIVE, Wallet.USAGE_COINJOIN
  * @returns {Promise<XKeyInfo>}
  */
 Wallet.rawGetUsageKey = async function (
@@ -212,7 +248,7 @@ Wallet.getCoinJoinAddressFor = async function (
 
 	let usageRound = roundInfo.usage - USAGE_COINJOIN;
 	if (usageRound >= maxRounds) {
-		let msg = `${address} has already been through ${ROUNDS_TARGET} CoinJoin rounds`;
+		let msg = `${address} has already been through ${maxRounds} CoinJoin rounds`;
 		let err = new Error(msg);
 		Object.assign(err, { code: "E_COINJOIN_MAX_ROUNDS" });
 		throw err;
@@ -226,7 +262,8 @@ Wallet.getCoinJoinAddressFor = async function (
 			network: accountInfo.network,
 			walletId: accountInfo.walletId,
 			accountId: accountInfo.accountId,
-			accountIndex: accountInfo.accountKey.index,
+			// jshint bitwise: false
+			accountIndex: accountInfo.accountKey.index & 0x7fffffff, // (for "hardening")
 			usageKey: usageKey,
 		};
 
@@ -272,7 +309,8 @@ Wallet.getCoinJoinAddressFor = async function (
 			network: accountInfo.network,
 			walletId: accountInfo.walletId,
 			accountId: accountInfo.accountId,
-			accountIndex: accountInfo.accountKey.index,
+			// jshint bitwise: false
+			accountIndex: accountInfo.accountKey.index & 0x7fffffff, // (for "hardening")
 			usageKey: usageKey,
 		};
 		let addressKey = await usageKey.deriveAddress(roundInfo.index);
@@ -301,7 +339,8 @@ Wallet._mergeKeyState = function (keyInfo) {
 Wallet._getXPrv = async function (accountInfo, usage) {
 	let xprvKeys = Wallet._coinjoinXPrvs[accountInfo.accountId];
 	if (!xprvKeys) {
-		Wallet._coinjoinXPrvs[accountInfo.accountId] = [];
+		xprvKeys = [];
+		Wallet._coinjoinXPrvs[accountInfo.accountId] = xprvKeys;
 	}
 
 	let xprvKey = xprvKeys[usage];
@@ -584,4 +623,5 @@ async function sleep(ms) {
 	});
 }
 
+// Object.assign(module.exports, Wallet);
 export default Wallet;
