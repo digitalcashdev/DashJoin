@@ -33,8 +33,8 @@ let DashKeys = globalThis.DashKeys || require("dashkeys");
  * @prop {Base58Check} address
  * @prop {Base58Check} wif
  * @prop {import('dashhd').HDKey} hdkey
- * @prop {Uint8Array?} privateKey
- * @prop {Uint8Array} publicKey
+ * @prop {Uint8Array?} [_privateKey]
+ * @prop {Hex} publicKey
  * @prop {Hex} pubKeyHash
  */
 
@@ -226,14 +226,6 @@ Wallet.rawGetUsageKey = async function (
 		usageKey,
 	};
 };
-
-// Wallet.Addresses.update = async function (address, deltas) {
-// 	// TODO
-// 	// - update in-memory cache (potentially the full data)
-// 	// - update storage (very little data)
-// 	// - will we need the full data from the network again?
-// 	//   (YES! but only when spending utxos)
-// };
 
 /**
  * @param {AccountInfo} accountInfo
@@ -515,6 +507,9 @@ Wallet._rawGetKeyInfo = async function (xkeyInfo, addressKey) {
 		throw err;
 	}
 
+	if (!addressKey.privateKey) {
+		throw new Error(`[wallet.js] address key is missing private bytes`);
+	}
 	let wif = await DashHd.toWif(addressKey.privateKey, {
 		version: xkeyInfo.network,
 	});
@@ -539,7 +534,7 @@ Wallet._rawGetKeyInfo = async function (xkeyInfo, addressKey) {
 		address: address, // ex: XrZJJfEKRNobcuwWKTD3bDu8ou7XSWPbc9
 		wif: wif, // ex: XCGKuZcKDjNhx8DaNKK4xwMMNzspaoToT6CafJAbBfQTi57buhLK
 		hdkey: addressKey,
-		privateKey: addressKey.privateKey || null,
+		_privateKey: addressKey.privateKey || null,
 		publicKey: DashKeys.utils.bytesToHex(addressKey.publicKey),
 		pubKeyHash: DashKeys.utils.bytesToHex(pkhBytes),
 	};
@@ -555,31 +550,118 @@ Wallet.Addresses = {};
 Wallet.Addresses._cache = {};
 
 /**
- * @param {String} key
- * @param {any} value
+ * @param {String} address
+ * @param {KeyStateMini?} keyStateMini
  */
-Wallet.Addresses.set = async function (key, value) {
-	if (value === null) {
-		localStorage.removeItem(key);
+Wallet.Addresses.set = async function (address, keyStateMini) {
+	if (keyStateMini === null) {
+		localStorage.removeItem(address);
 		return;
 	}
 
-	let dataJson = JSON.stringify(value);
-	localStorage.setItem(`${ADDR_PRE}${key}`, dataJson);
+	let data;
+	if (keyStateMini.satoshisList?.length) {
+		data = keyStateMini.satoshisList;
+	} else if (keyStateMini.reservedAt > 0) {
+		data = keyStateMini.reservedAt;
+	} else if (keyStateMini.hasBeenUsed) {
+		data = 0;
+	} else {
+		// TODO save info on sharedAt, updatedAt, maybe coinjoin
+		return;
+	}
+
+	let dataJson = JSON.stringify(data);
+	localStorage.setItem(`${ADDR_PRE}${address}`, dataJson);
 };
 
 /**
- * @param {String} key
- * @param {any?} [defaultValue=null]
+ * @typedef Delta
+ * @prop {String} address
+ * @prop {Number} satoshis
+ * @prop {String} txid
+ * @prop {Number} index
  */
-Wallet.Addresses.get = async function (key, defaultValue = null) {
-	let dataJson = localStorage.getItem(`${ADDR_PRE}${key}`);
+
+/**
+ * @param {Array<Delta>} deltas
+ */
+Wallet.Addresses.setDeltas = async function (deltas) {
+	// TODO
+	// - update in-memory cache (potentially the full data)
+	// - update storage (very little data)
+	// - will we need the full data from the network again?
+	//   (YES! but only when spending utxos)
+
+	/** @type {KeyStateMini} */
+	let keyStateMini = {
+		satoshisList: [],
+		hasBeenUsed: false,
+		reservedAt: 0,
+		sharedAt: 0,
+		updatedAt: 0,
+	};
+
+	// credits
+	for (let delta of deltas) {
+		if (delta.satoshis > 0) {
+			keyStateMini.satoshisList.push(delta.satoshis);
+		}
+	}
+
+	// debits
+	for (let delta of deltas) {
+		if (delta.satoshis < 0) {
+			let satoshis = Math.abs(delta.satoshis);
+			let index = keyStateMini.satoshisList.indexOf(satoshis);
+			if (index >= 0) {
+				keyStateMini.satoshisList.splice(index, 1);
+			}
+		}
+	}
+
+	// completely spent
+	if (!keyStateMini.satoshisList.length) {
+		keyStateMini.hasBeenUsed = true;
+	}
+
+	let address = deltas[0]?.address;
+	let keyState = Wallet.keysByAddress[address];
+	if (!keyState) {
+		throw new Error("address not in addresses cache");
+	}
+	Object.assign(keyState, keyStateMini);
+
+	let usageState = Wallet._getState(keyState.accountId, keyState.index);
+	Wallet.updateKeyState(usageState, keyState);
+
+	Wallet.Addresses.set(address, keyStateMini);
+};
+
+/**
+ * @param {String} address
+ * @param {KeyStateMini?} [defaultValue=null]
+ */
+Wallet.Addresses.get = async function (address, defaultValue = null) {
+	let dataJson = localStorage.getItem(`${ADDR_PRE}${address}`);
 	if (dataJson === null) {
 		dataJson = JSON.stringify(defaultValue);
 	}
 
+	// TODO represent coinjoin (I already forgot for what)
 	let data = JSON.parse(dataJson);
-	return data;
+	let keyStateMini = globalThis.structuredClone(Wallet._emptyKeyStateMini);
+	if (data.length) {
+		keyStateMini.satoshisList = data;
+	} else if (data > 0) {
+		keyStateMini.reservedAt = data;
+	} else if (data <= 0) {
+		keyStateMini.hasBeenUsed = true;
+	} else {
+		throw new Error(`corrupted data for '${ADDR_PRE}${address}'`);
+	}
+
+	return keyStateMini;
 };
 
 /**
@@ -610,20 +692,12 @@ Wallet.Addresses.all = async function () {
 			continue;
 		}
 
-		// TODO represent coinjoin (I already forgot for what)
-		let keyStateMini = globalThis.structuredClone(Wallet._emptyKeyStateMini);
-		let data = JSON.parse(json);
-		if (data.length) {
-			keyStateMini.satoshisList = data;
-		} else if (data > 0) {
-			keyStateMini.reservedAt = data;
-		} else if (data <= 0) {
-			keyStateMini.hasBeenUsed = true;
-		} else {
-			throw new Error(`corrupted data for '${key}'`);
-		}
-
 		let address = key.slice(ADDR_PRE.length);
+		let keyStateMiniDefault = globalThis.structuredClone(
+			Wallet._emptyKeyStateMini,
+		);
+		let keyStateMini = Wallet.Addresses.get(address, keyStateMiniDefault);
+
 		results[address] = keyStateMini;
 	}
 
