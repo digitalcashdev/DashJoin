@@ -269,13 +269,13 @@ import Wallet from "./wallet.js";
 			}
 
 			let keyState = Wallet.keysByAddress[address];
-			return keyState.privateKey;
+			// return keyState.privateKey;
 
 			// if (!keyState.privateKey) {
-			// 	let privKeyBytes = await DashKeys.wifToPrivKey(keyState.wif, {
-			// 		version: App.network,
-			// 	});
-			//  return privKeyBytes;
+			let privKeyBytes = await DashKeys.wifToPrivKey(keyState.wif, {
+				version: App.network,
+			});
+			return privKeyBytes;
 			// }
 		},
 
@@ -1202,8 +1202,14 @@ import Wallet from "./wallet.js";
 				// nothing yet, coinjoin later
 			}
 		}
-		$("[data-id=receive-addresses]").textContent = receiveAddrs.join("\n");
-		$("[data-id=change-addresses]").textContent = changeAddrs.join("\n");
+
+		let receiveList = receiveAddrs.join("\n");
+		$("[data-id=receive-addresses]").textContent =
+			`${receiveAddrs.length}\n${receiveList}`;
+
+		let changeList = changeAddrs.join("\n");
+		$("[data-id=change-addresses]").textContent =
+			`${changeAddrs.length}\n${changeList}`;
 	}
 
 	/**
@@ -2039,6 +2045,12 @@ import Wallet from "./wallet.js";
 			// there's a positive balance and debits on the same coin
 			deltasMap[delta.address].balance += delta.satoshis;
 		}
+
+		let deltasInfoList = Object.values(deltasMap);
+		for (let deltasInfo of deltasInfoList) {
+			await Wallet.Addresses.setDeltas(deltasInfo.deltas);
+		}
+
 		// }
 	}
 
