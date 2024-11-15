@@ -629,7 +629,7 @@ Wallet.Addresses.setDeltas = async function (deltas) {
 	let address = deltas[0]?.address;
 	let keyState = Wallet.keysByAddress[address];
 	if (!keyState) {
-		throw new Error("address not in addresses cache");
+		throw new Error(`address '${address}' not in addresses cache`);
 	}
 	Object.assign(keyState, keyStateMini);
 
