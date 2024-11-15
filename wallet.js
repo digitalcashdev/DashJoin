@@ -525,6 +525,7 @@ Wallet._rawGetKeyInfo = async function (xkeyInfo, addressKey) {
 
 	let pkhBytes = await DashKeys.pubkeyToPkh(addressKey.publicKey);
 	let keyInfo = {
+		network: xkeyInfo.network ?? "",
 		walletId: xkeyInfo.walletId ?? "",
 		accountId: xkeyInfo.accountId ?? "",
 		account: xkeyInfo.accountIndex ?? -1,
@@ -696,7 +697,7 @@ Wallet.Addresses.all = async function () {
 		let keyStateMiniDefault = globalThis.structuredClone(
 			Wallet._emptyKeyStateMini,
 		);
-		let keyStateMini = Wallet.Addresses.get(address, keyStateMiniDefault);
+		let keyStateMini = await Wallet.Addresses.get(address, keyStateMiniDefault);
 
 		results[address] = keyStateMini;
 	}
