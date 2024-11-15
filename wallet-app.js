@@ -112,22 +112,53 @@ import Wallet from "./wallet.js";
 	const COINTYPE_TESTNET = 1; // testnet (for all coins)
 
 	App.network = MAINNET;
-	App.coinType = COINTYPE_DASH;
-	App.hdVersions = DashHd.MAINNET;
-	App.seedOpts = {
-		purpose: 44, // BIP-44 (default)
-		coinType: App.coinType,
-		versions: App.hdVersions,
-	};
 
 	App.dbPrefix = "";
 	App.customRpcUrl = "";
 	App.customP2pUrl = "";
-	App.rpcExplorer = "";
-	App.rpcBaseUrl = "";
-	App.p2pWebProxyUrl = "";
 
+	let sessionSeedBytes = new Uint8Array(0);
+	let sessionPhrase = "";
 	let sessionSalt = "";
+
+	let session = {};
+	session.accountIndex = 0;
+	// session.coinjoinIndex = 0;
+	session.mainnet = {
+		/** @type {import('dashhd').HDWallet} */ //@ts-expect-error
+		walletKey: null,
+		walletId: "",
+		accountId: "",
+		/** @type {import('./wallet.js').XKeyInfo} */ //@ts-expect-error
+		receiveKeyInfo: null,
+		/** @type {import('./wallet.js').XKeyInfo} */ //@ts-expect-error
+		changeKeyInfo: null,
+		/** @type {import('./wallet.js').XKeyInfo} */ //@ts-expect-error
+		cjKeyInfo: null,
+	};
+	session.testnet = {
+		/** @type {import('dashhd').HDWallet} */ //@ts-expect-error
+		walletKey: null,
+		walletId: "",
+		accountId: "",
+		/** @type {import('./wallet.js').XKeyInfo} */ //@ts-expect-error
+		receiveKeyInfo: null,
+		/** @type {import('./wallet.js').XKeyInfo} */ //@ts-expect-error
+		changeKeyInfo: null,
+		/** @type {import('./wallet.js').XKeyInfo} */ //@ts-expect-error
+		cjKeyInfo: null,
+	};
+	let currentSession = session.mainnet;
+
+	App.__DANGEROUS_showSecrets = async function () {
+		return {
+			seedBytes: sessionSeedBytes,
+			phrase: sessionPhrase,
+			salt: sessionSalt,
+			mainnet: session.mainnet,
+			testnet: session.testnet,
+		};
+	};
 
 	// /** @type {Array<String>} */
 	// let addresses = [];
@@ -184,6 +215,10 @@ import Wallet from "./wallet.js";
 	/**
 	 * @typedef NetworkInfo
 	 * @prop {String} network
+	 * @prop {String} dbPrefix
+	 * @prop {Number} purpose - 44 for BIP-44
+	 * @prop {Number} coinType - 5 for DASH, 1 for testnet (all coins)
+	 * @prop {import('dashhd').HDVersions} hdVersions - xprv/xpub or tprv/tpub
 	 * @prop {Number} maxConns
 	 * @prop {Boolean} initialized
 	 * @prop {Object.<Number, QueueInfo>} coinjoinQueues
@@ -193,6 +228,9 @@ import Wallet from "./wallet.js";
 	 * @prop {Number} startHeight
 	 * @prop {ChainInfo} _chaininfo
 	 * @prop {Object.<String, PeerInfo>} peers
+	 * @prop {String} rpcExplorer
+	 * @prop {String} rpcBaseUrl
+	 * @prop {String} p2pWebProxyUrl
 	 */
 
 	/**
@@ -206,6 +244,10 @@ import Wallet from "./wallet.js";
 	/** @type {NetworkInfo} */
 	App.mainnet = {
 		network: "mainnet",
+		purpose: 44,
+		coinType: COINTYPE_DASH,
+		hdVersions: DashHd.MAINNET,
+		dbPrefix: "",
 		maxConns: 3,
 		initialized: false,
 		coinjoinQueues: globalThis.structuredClone(emptyCoinjoinQueues),
@@ -217,11 +259,18 @@ import Wallet from "./wallet.js";
 		nodesByProTxHash: {},
 		nodesByHost: {},
 		peers: {},
+		rpcExplorer: "https://rpc.digitalcash.dev/",
+		rpcBaseUrl: `https://api:null@rpc.digitalcash.dev/`,
+		p2pWebProxyUrl: "wss://p2p.digitalcash.dev/ws",
 	};
 
 	/** @type {NetworkInfo} */
 	App.testnet = {
 		network: "testnet",
+		purpose: 44,
+		coinType: COINTYPE_TESTNET,
+		hdVersions: DashHd.TESTNET,
+		dbPrefix: "testnet-",
 		maxConns: 3,
 		initialized: false,
 		coinjoinQueues: globalThis.structuredClone(emptyCoinjoinQueues),
@@ -233,7 +282,12 @@ import Wallet from "./wallet.js";
 		nodesByProTxHash: {},
 		nodesByHost: {},
 		peers: {},
+		rpcExplorer: "https://trpc.digitalcash.dev/",
+		rpcBaseUrl: `https://api:null@trpc.digitalcash.dev/`,
+		p2pWebProxyUrl: "wss://tp2p.digitalcash.dev/ws",
 	};
+
+	App.currentNetwork = App.mainnet;
 
 	/**
 	 * @typedef SessionInfo
@@ -265,7 +319,7 @@ import Wallet from "./wallet.js";
 			if (!address) {
 				return null;
 				// let pkhBytes = DashKeys.utils.hexToBytes(txInput.pubKeyHash);
-				// address = await DashKeys.pkhToAddr(pkhBytes, { version: App.network });
+				// address = await DashKeys.pkhToAddr(pkhBytes, { version: App.currentNetwork.network });
 			}
 
 			let keyState = Wallet.keysByAddress[address];
@@ -273,7 +327,7 @@ import Wallet from "./wallet.js";
 
 			// if (!keyState.privateKey) {
 			let privKeyBytes = await DashKeys.wifToPrivKey(keyState.wif, {
-				version: App.network,
+				version: App.currentNetwork.network,
 			});
 			return privKeyBytes;
 			// }
@@ -407,7 +461,7 @@ import Wallet from "./wallet.js";
 	App.rpc = async function (method, ...params) {
 		let rpcBaseUrl = App.customRpcUrl;
 		if (rpcBaseUrl.length === 0) {
-			rpcBaseUrl = App.rpcBaseUrl;
+			rpcBaseUrl = App.currentNetwork.rpcBaseUrl;
 		}
 
 		let result = await DashTx.utils.rpc(rpcBaseUrl, method, ...params);
@@ -447,13 +501,6 @@ import Wallet from "./wallet.js";
 			return;
 		}
 		App.customRpcUrl = customRpcUrl;
-
-		// let networkInfo = App.testnet;
-		// if (App.network === MAINNET) {
-		// 	networkInfo = App.mainnet;
-		// }
-		// networkInfo.initialized = false;
-		// await App.$init();
 	};
 
 	App.$updateP2pUrl = async function () {
@@ -468,13 +515,6 @@ import Wallet from "./wallet.js";
 			return;
 		}
 		App.customP2pUrl = customP2pUrl;
-
-		// let networkInfo = App.testnet;
-		// if (App.network === MAINNET) {
-		// 	networkInfo = App.mainnet;
-		// }
-		// networkInfo.initialized = false;
-		// await App.$init();
 	};
 
 	/**
@@ -483,9 +523,23 @@ import Wallet from "./wallet.js";
 	 * @param {Number} accountIndex
 	 */
 	App.$saveWallet = async function (phrase, salt, accountIndex) {
-		await DashPhrase.verify(phrase);
+		await DashPhrase.verify(phrase); // possible error here
 
-		let phrases = dbGet(`${App.dbPrefix}wallet-phrases`, []);
+		$('[data-id="wallet-status"]').textContent = "";
+		setTimeout(async function () {
+			$('[data-id="wallet-status"]').textContent = "updating...";
+		}, 100);
+		setTimeout(function () {
+			$('[data-id="wallet-status"]').textContent = "updated";
+		}, 550);
+		setTimeout(function () {
+			$('[data-id="wallet-status"]').textContent = "";
+		}, 1500);
+
+		sessionPhrase = phrase;
+		sessionSalt = salt || "";
+		await App.$init(App.currentNetwork.network); // error shouldn't be possible here
+		let phrases = dbGet(`${App.currentNetwork.dbPrefix}wallet-phrases`, []);
 		for (;;) {
 			let hasPhrase = phrases.includes(phrase);
 			if (!hasPhrase) {
@@ -494,76 +548,45 @@ import Wallet from "./wallet.js";
 			removeElement(phrases, phrase);
 		}
 		phrases.unshift(phrase);
-		dbSet(`${App.dbPrefix}wallet-phrases`, phrases);
-
-		let primarySeedBytes = await DashPhrase.toSeed(phrase, sessionSalt);
-		let walletKey = await DashHd.fromSeed(primarySeedBytes /*, App.seedOpts*/);
-		let walletId = await DashHd.toId(walletKey);
-		dbSet(`wallet-${walletId}-account-index`, accountIndex);
-
-		$('[data-id="wallet-status"]').textContent = "";
-		setTimeout(async function () {
-			$('[data-id="wallet-status"]').textContent = "updating...";
-			// await App._$walletUpdate(phrase, salt, accountIndex, coinjoinIndex);
-			await App.$init(App.network);
-		}, 100);
-		setTimeout(function () {
-			$('[data-id="wallet-status"]').textContent = "updated";
-		}, 550);
-		setTimeout(function () {
-			$('[data-id="wallet-status"]').textContent = "";
-		}, 1500);
+		dbSet(`${App.currentNetwork.dbPrefix}wallet-phrases`, phrases);
+		dbSet(`wallet-${currentSession.walletId}-account-index`, accountIndex);
 	};
 
 	/**
 	 * @param {String} phrase
-	 * @param {String} salt
+	 * @param {Hex} seedHex
 	 * @param {Number} primaryAccount - 0 (typical primary)
 	 * @param {Number} coinjoinAccount - 1 (above primary)
 	 * @param {Number} firstRoundIndex - 2 (above receive/change)
 	 */
-	App._$walletUpdate = async function (
+	App._$renderWalletSettings = async function (
 		phrase,
-		salt,
+		seedHex,
 		primaryAccount = 0,
-		coinjoinAccount = 1,
-		firstRoundIndex = 2,
+		coinjoinAccount = 0,
+		firstRoundIndex = Wallet.USAGE_COINJOIN,
 	) {
-		sessionSalt = salt || "";
-
-		let seedBytes = await DashPhrase.toSeed(phrase, sessionSalt);
-		let seedHex = DashKeys.utils.bytesToHex(seedBytes);
-
 		$('[name="walletPhrase"]').value = phrase;
 		$('[name="walletSeed"]').value = seedHex;
 
 		$('[name="primaryAccount"]').value = primaryAccount.toString();
 		$("[data-id=primary-path]").value =
-			`m/44'/${App.coinType}'/${primaryAccount}'`;
+			`m/44'/${App.currentNetwork.coinType}'/${primaryAccount}'`;
 
 		$('[name="coinjoinAccount"]').value = coinjoinAccount.toString();
 		$("[data-id=coinjoin-path]").value =
-			`m/44'/${App.coinType}'/${coinjoinAccount}'/${firstRoundIndex}`;
+			`m/44'/${App.currentNetwork.coinType}'/${coinjoinAccount}'/${firstRoundIndex}`;
 
 		// $('[name="walletPhrase"]').type = "password"; // delayed to avoid pw prompt
 		// $('[name="walletSeed"]').type = "password"; // delayed to avoid pw prompt
 		// $('[name="phraseSalt"]').type = "password"; // delayed to avoid pw prompt
 	};
 
-	/** @type {import('./wallet.js').XKeyInfo} */ //@ts-expect-error
-	App._receiveKeyInfo = null;
-
 	/**
-	 * @param {String} phrase
-	 * @param {String} sessionSalt
-	 * @param {Number} accountIndex
 	 * @param {Number} lastReceiveIndex
 	 * @param {Number} lastChangeIndex
 	 */
 	App._walletDerive = async function (
-		phrase,
-		sessionSalt,
-		accountIndex,
 		lastReceiveIndex = 0,
 		lastChangeIndex = 0,
 	) {
@@ -576,18 +599,15 @@ import Wallet from "./wallet.js";
 		deltasMap = {};
 		// // keysMap = {}; // this is reference-only
 
-		let primarySeedBytes = await DashPhrase.toSeed(phrase, sessionSalt);
-		let walletKey = await DashHd.fromSeed(primarySeedBytes /*, App.seedOpts*/);
-
 		let accountInfo = await Wallet.rawGetAccountKey(
-			App.network,
-			walletKey,
-			accountIndex,
+			App.currentNetwork.network,
+			currentSession.walletKey,
+			session.accountIndex,
 		);
 		console.log(
 			`DEBUG ACCOUNT_KEY_INFO`,
-			App.coinType,
-			accountIndex,
+			App.currentNetwork.coinType,
+			session.accountIndex,
 			accountInfo,
 		);
 
@@ -601,24 +621,31 @@ import Wallet from "./wallet.js";
 		let checkableAddrs = [];
 
 		let usages = [
-			{
-				usage: DashHd.RECEIVE,
-				count: 100,
-			},
-			{ usage: DashHd.CHANGE, count: 100 },
+			{ usage: Wallet.USAGE_RECEIVE, count: 100 },
+			{ usage: Wallet.USAGE_CHANGE, count: 100 },
 			{ usage: Wallet.USAGE_COINJOIN, count: 300 },
 		];
 		for (let u of usages) {
 			let usageKeyInfo = await Wallet.rawGetUsageKey(
-				App.network,
-				walletKey,
-				accountIndex,
+				App.currentNetwork.network,
+				currentSession.walletKey,
+				session.accountIndex,
 				u.usage,
 			);
-			if (u.usage === DashHd.RECEIVE) {
-				App._receiveKeyInfo = usageKeyInfo;
+			if (u.usage === Wallet.USAGE_RECEIVE) {
+				currentSession.receiveKeyInfo = usageKeyInfo;
+			} else if (u.usage === Wallet.USAGE_RECEIVE) {
+				currentSession.changeKeyInfo = usageKeyInfo;
+			} else if (u.usage === Wallet.USAGE_COINJOIN) {
+				currentSession.cjKeyInfo = usageKeyInfo;
+			} else {
+				// ignore for now
 			}
-			console.log(`DEBUG USAGE_KEY_INFO`, App.coinType, usageKeyInfo);
+			console.log(
+				`DEBUG USAGE_KEY_INFO`,
+				App.currentNetwork.coinType,
+				usageKeyInfo,
+			);
 
 			let keyStates = await Wallet.getUnusedKeys(
 				accountInfo.accountId,
@@ -631,39 +658,6 @@ import Wallet from "./wallet.js";
 				}
 			}
 		}
-
-		//
-		// TODO
-		// cache negative result when addresses without deltas
-		// do NOT come back in the list of deltas
-		//
-
-		// let xprvReceiveKey = await accountKey.deriveXKey(DashHd.RECEIVE);
-		// let xprvChangeKey = await accountKey.deriveXKey(DashHd.CHANGE);
-
-		// let receiveEnd = lastReceiveIndex + 50;
-		// for (let i = lastReceiveIndex; i < receiveEnd; i += 1) {
-		// 	let receiveKey;
-		// 	try {
-		// 		receiveKey = await xprvReceiveKey.deriveAddress(i); // xprvKey from step 2
-		// 	} catch (e) {
-		// 		receiveEnd += 1; // to make up for skipping on error
-		// 		continue;
-		// 	}
-		// 	await addKey(walletId, accountIndex, receiveKey, DashHd.RECEIVE, i);
-		// }
-
-		// let changeEnd = lastChangeIndex + 50;
-		// for (let i = lastChangeIndex; i < changeEnd; i += 1) {
-		// 	let changeKey;
-		// 	try {
-		// 		changeKey = await xprvChangeKey.deriveAddress(i); // xprvKey from step 2
-		// 	} catch (e) {
-		// 		changeEnd += 1; // to make up for skipping on error
-		// 		continue;
-		// 	}
-		// 	await addKey(walletId, accountIndex, changeKey, DashHd.CHANGE, i);
-		// }
 	};
 
 	/** @param {String} address */
@@ -733,6 +727,17 @@ import Wallet from "./wallet.js";
 		for (let addr of addrs) {
 			let info = deltasMap[addr];
 			if (info.balance === 0) {
+				continue;
+			}
+			let keyState = Wallet.keysByAddress[addr];
+			if (keyState.network !== App.currentNetwork.network) {
+				console.log(`DEBUG keyState`, keyState);
+				continue;
+			}
+			if (
+				keyState.usage !== Wallet.USAGE_RECEIVE &&
+				keyState.usage !== Wallet.USAGE_CHANGE
+			) {
 				continue;
 			}
 			for (let delta of info.deltas) {
@@ -853,7 +858,9 @@ import Wallet from "./wallet.js";
 		} catch (e) {
 			window.alert(`invalid address '${address}'`);
 		}
-		let wif = await DashKeys.privKeyToWif(privKey, { version: App.network });
+		let wif = await DashKeys.privKeyToWif(privKey, {
+			version: App.currentNetwork.network,
+		});
 
 		$("[data-id=export-wif]").textContent = wif;
 	};
@@ -893,7 +900,7 @@ import Wallet from "./wallet.js";
 		let txid = await App._$commitWalletTx(signedTx);
 
 		$("[data-id=memo-txid]").textContent = txid;
-		let link = `${App.rpcExplorer}#?method=getrawtransaction&params=["${txid}",1]&submit`;
+		let link = `${App.currentNetwork.rpcExplorer}#?method=getrawtransaction&params=["${txid}",1]&submit`;
 		$("[data-id=memo-link]").textContent = link;
 		$("[data-id=memo-link]").href = link;
 	};
@@ -1022,7 +1029,7 @@ import Wallet from "./wallet.js";
 			let realChange = txInfo.outputs[txInfo.changeIndex];
 			realChange.address = changeAddress;
 			let pkhBytes = await DashKeys.addrToPkh(realChange.address, {
-				version: App.network,
+				version: App.currentNetwork.network,
 			});
 			realChange.pubKeyHash = DashKeys.utils.bytesToHex(pkhBytes);
 		}
@@ -1092,7 +1099,7 @@ import Wallet from "./wallet.js";
 				}
 			} else {
 				let pkhBytes = await DashKeys.addrToPkh(output.address, {
-					version: App.network,
+					version: App.currentNetwork.network,
 				});
 				Object.assign(output, {
 					pubKeyHash: DashKeys.utils.bytesToHex(pkhBytes),
@@ -1241,60 +1248,66 @@ import Wallet from "./wallet.js";
 	App.$init = async function (network) {
 		App.network = network;
 		if (App.network === MAINNET) {
-			App.dbPrefix = "";
-			App.coinType = COINTYPE_DASH;
-			App.hdVersions = DashHd.MAINNET;
-			App.seedOpts = {
-				purpose: 44,
-				coinType: App.coinType,
-				versions: App.hdVersions,
-			};
-			App.rpcExplorer = "https://rpc.digitalcash.dev/";
-			App.rpcBaseUrl = `https://api:null@rpc.digitalcash.dev/`;
-			App.p2pWebProxyUrl = "wss://p2p.digitalcash.dev/ws";
+			App.currentNetwork = App.mainnet;
+			currentSession = session.mainnet;
 		} else {
-			App.dbPrefix = "testnet-";
-			App.coinType = COINTYPE_TESTNET;
-			App.hdVersions = DashHd.TESTNET;
-			App.seedOpts = {
-				purpose: 44,
-				coinType: App.coinType,
-				versions: App.hdVersions,
-			};
-			App.rpcExplorer = "https://trpc.digitalcash.dev/";
-			App.rpcBaseUrl = `https://api:null@trpc.digitalcash.dev/`;
-			App.p2pWebProxyUrl = "wss://tp2p.digitalcash.dev/ws";
+			App.currentNetwork = App.testnet;
+			currentSession = session.testnet;
 		}
 
-		denomsMap = {};
+		if (!sessionPhrase) {
+			let phrases = dbGet(`${App.currentNetwork.dbPrefix}wallet-phrases`, []);
+			sessionPhrase = phrases[0];
+		}
+		sessionSeedBytes = await DashPhrase.toSeed(sessionPhrase, sessionSalt);
+		if (!sessionPhrase) {
+			sessionPhrase = await DashPhrase.generate(128);
+			//dbSet(`${App.currentNetwork.dbPrefix}wallet-phrases`, [primaryPhrase]);
+		}
 
 		App.mainnet.maxConns = dbGet(`max-connections`, App.mainnet.maxConns);
 		App.testnet.maxConns = dbGet(
 			`testnet-max-connections`,
 			App.testnet.maxConns,
 		);
-		let phrases = dbGet(`${App.dbPrefix}wallet-phrases`, []);
-		let primaryPhrase = phrases[0];
-		if (!primaryPhrase) {
-			primaryPhrase = await DashPhrase.generate(128);
-			//dbSet(`${App.dbPrefix}wallet-phrases`, [primaryPhrase]);
-		}
 
-		let primarySeedBytes = await DashPhrase.toSeed(primaryPhrase, sessionSalt);
-		let walletKey = await DashHd.fromSeed(primarySeedBytes /*, App.seedOpts*/);
-		let walletId = await DashHd.toId(walletKey);
-		let primaryIndex = await dbGet(`wallet-${walletId}-primary-index`, 0);
-		let coinjoinIndex = await dbGet(`wallet-${walletId}-coinjoin-index`, 1);
-		let firstRoundIndex = await dbGet(`wallet-${walletId}-coinjoin-index`, 2);
-
-		await App._$walletUpdate(
-			primaryPhrase,
-			sessionSalt,
-			primaryIndex,
-			coinjoinIndex,
-			firstRoundIndex,
+		// TODO
+		// this is to maintain backwards compat with deployed version (tesnet)
+		// we should undo it sometime later today
+		currentSession.walletKey = await DashHd.fromSeed(
+			sessionSeedBytes,
+			/*{
+				purpose: App.currentNetwork.purpose,
+				coinType: App.currentNetwork.coinType,
+				versions: App.currentNetwork.hdVersions,
+			}*/
 		);
-		await App._walletDerive(primaryPhrase, sessionSalt, primaryIndex);
+		currentSession.walletId = await DashHd.toId(currentSession.walletKey);
+
+		denomsMap = {};
+
+		session.accountIndex = await dbGet(
+			`wallet-${currentSession.walletId}-primary-index`,
+			0,
+		);
+		// let coinjoinIndex = await dbGet(
+		// 	`wallet-${currentSession.walletId}-coinjoin-index`,
+		// 	0,
+		// );
+		// let firstRoundIndex = await dbGet(
+		// 	`wallet-${currentSession.walletId}-coinjoin-index`,
+		// 	USAGE_COINJOIN,
+		// );
+
+		let seedHex = DashKeys.utils.bytesToHex(sessionSeedBytes);
+		await App._$renderWalletSettings(
+			sessionPhrase,
+			seedHex,
+			session.accountIndex,
+			session.accountIndex,
+			Wallet.USAGE_COINJOIN,
+		);
+		await App._walletDerive();
 
 		let addresses = Object.keys(Wallet.keysByAddress);
 		await updateDeltas(addresses);
@@ -1303,7 +1316,7 @@ import Wallet from "./wallet.js";
 
 		let $testnets = $$("[data-network=testnet]");
 		for (let $testnet of $testnets) {
-			$testnet.hidden = App.network === MAINNET;
+			$testnet.hidden = App.currentNetwork.network === MAINNET;
 		}
 
 		siftDenoms();
@@ -1312,10 +1325,7 @@ import Wallet from "./wallet.js";
 	};
 
 	App.initP2p = async function () {
-		let networkInfo = App.mainnet;
-		if (App.network !== MAINNET) {
-			networkInfo = App.testnet;
-		}
+		let networkInfo = App.currentNetwork;
 		if (!networkInfo.initialized) {
 			networkInfo.masternodelist = await App.rpc("masternodelist");
 			networkInfo.initialized = true;
@@ -1632,9 +1642,9 @@ import Wallet from "./wallet.js";
 	//  * @param {Number} i
 	//  */
 	// async function addKey(walletId, accountIndex, key, usage, i) {
-	// 	let wif = await DashHd.toWif(key.privateKey, { version: App.network });
+	// 	let wif = await DashHd.toWif(key.privateKey, { version: App.currentNetwork.network });
 	// 	let address = await DashHd.toAddr(key.publicKey, {
-	// 		version: App.network,
+	// 		version: App.currentNetwork.network,
 	// 	});
 	// 	let hdpath = `m/44'/${App.coinType}'/${accountIndex}'/${usage}`; // accountIndex from step 2
 
@@ -2065,9 +2075,9 @@ import Wallet from "./wallet.js";
 		utxos.sort(sortCoinsByDenomAndSatsDesc);
 
 		let keyStates = await Wallet.getUnusedKeys(
-			App._receiveKeyInfo.accountId,
-			App._receiveKeyInfo,
-			1, // TODO reserve
+			currentSession.receiveKeyInfo.accountId,
+			currentSession.receiveKeyInfo,
+			1, // TODO create a function to reserve keys (marked used)
 		);
 		let firstReceiveKeyInfo = keyStates[0];
 		console.log(`DEBUG firstReceiveKeyInfo`, firstReceiveKeyInfo);
@@ -2196,10 +2206,7 @@ import Wallet from "./wallet.js";
 	 * @param {Number} height
 	 */
 	P2P.connect = async function (nodeInfo, height) {
-		let networkInfo = App.mainnet;
-		if (App.network !== MAINNET) {
-			networkInfo = App.testnet;
-		}
+		let networkInfo = App.currentNetwork;
 
 		let host = nodeInfo.address || nodeInfo.host;
 		if (networkInfo.peers[host]) {
@@ -2221,7 +2228,7 @@ import Wallet from "./wallet.js";
 		let search = searchParams.toString();
 		let p2pWebProxyUrl = App.customP2pUrl;
 		if (p2pWebProxyUrl.length === 0) {
-			p2pWebProxyUrl = App.p2pWebProxyUrl;
+			p2pWebProxyUrl = App.currentNetwork.p2pWebProxyUrl;
 		}
 
 		let sep = "?";
@@ -2245,7 +2252,9 @@ import Wallet from "./wallet.js";
 			start_height: height,
 		});
 
-		let senddsqBytes = DashJoin.packers.senddsq({ network: App.network });
+		let senddsqBytes = DashJoin.packers.senddsq({
+			network: App.currentNetwork.network,
+		});
 		console.log("[REQ: %csenddsq%c]", "color: $55daba", "color: inherit");
 		p2p.send(senddsqBytes); // 'senddsq' is to SUBSCRIBE
 
@@ -2742,7 +2751,7 @@ import Wallet from "./wallet.js";
 				pubKeyHash: "",
 			};
 			let pkhBytes = await DashKeys.addrToPkh(output.address, {
-				version: App.network,
+				version: App.currentNetwork.network,
 			});
 			output.pubKeyHash = DashKeys.utils.bytesToHex(pkhBytes);
 			outputs.push(output);
@@ -2755,10 +2764,7 @@ import Wallet from "./wallet.js";
 			await App._signCollateral(DashJoin.MIN_COLLATERAL),
 		];
 
-		let networkInfo = App.mainnet;
-		if (App.network !== MAINNET) {
-			networkInfo = App.testnet;
-		}
+		let networkInfo = App.currentNetwork;
 
 		/** @type {ReturnType<typeof DashP2P.create>} */ //@ts-expect-error
 		let p2pHost = null;
