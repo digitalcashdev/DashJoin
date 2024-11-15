@@ -114,6 +114,12 @@ import Wallet from "./wallet.js";
 	App.network = MAINNET;
 	App.coinType = COINTYPE_DASH;
 	App.hdVersions = DashHd.MAINNET;
+	App.seedOpts = {
+		purpose: 44, // BIP-44 (default)
+		coinType: App.coinType,
+		versions: App.hdVersions,
+	};
+
 	App.dbPrefix = "";
 	App.customRpcUrl = "";
 	App.customP2pUrl = "";
@@ -491,11 +497,7 @@ import Wallet from "./wallet.js";
 		dbSet(`${App.dbPrefix}wallet-phrases`, phrases);
 
 		let primarySeedBytes = await DashPhrase.toSeed(phrase, sessionSalt);
-		let walletKey = await DashHd.fromSeed(primarySeedBytes, {
-			purpose: 44, // BIP-44 (default)
-			coinType: App.coinType,
-			versions: App.hdVersions,
-		});
+		let walletKey = await DashHd.fromSeed(primarySeedBytes /*, App.seedOpts*/);
 		let walletId = await DashHd.toId(walletKey);
 		dbSet(`wallet-${walletId}-account-index`, accountIndex);
 
@@ -575,11 +577,7 @@ import Wallet from "./wallet.js";
 		// // keysMap = {}; // this is reference-only
 
 		let primarySeedBytes = await DashPhrase.toSeed(phrase, sessionSalt);
-		let walletKey = await DashHd.fromSeed(primarySeedBytes, {
-			purpose: 44, // BIP-44 (default)
-			coinType: App.coinType,
-			versions: App.hdVersions,
-		});
+		let walletKey = await DashHd.fromSeed(primarySeedBytes /*, App.seedOpts*/);
 
 		let accountInfo = await Wallet.rawGetAccountKey(
 			App.network,
@@ -1240,6 +1238,11 @@ import Wallet from "./wallet.js";
 			App.dbPrefix = "";
 			App.coinType = COINTYPE_DASH;
 			App.hdVersions = DashHd.MAINNET;
+			App.seedOpts = {
+				purpose: 44,
+				coinType: App.coinType,
+				versions: App.hdVersions,
+			};
 			App.rpcExplorer = "https://rpc.digitalcash.dev/";
 			App.rpcBaseUrl = `https://api:null@rpc.digitalcash.dev/`;
 			App.p2pWebProxyUrl = "wss://p2p.digitalcash.dev/ws";
@@ -1247,6 +1250,11 @@ import Wallet from "./wallet.js";
 			App.dbPrefix = "testnet-";
 			App.coinType = COINTYPE_TESTNET;
 			App.hdVersions = DashHd.TESTNET;
+			App.seedOpts = {
+				purpose: 44,
+				coinType: App.coinType,
+				versions: App.hdVersions,
+			};
 			App.rpcExplorer = "https://trpc.digitalcash.dev/";
 			App.rpcBaseUrl = `https://api:null@trpc.digitalcash.dev/`;
 			App.p2pWebProxyUrl = "wss://tp2p.digitalcash.dev/ws";
@@ -1267,11 +1275,7 @@ import Wallet from "./wallet.js";
 		}
 
 		let primarySeedBytes = await DashPhrase.toSeed(primaryPhrase, sessionSalt);
-		let walletKey = await DashHd.fromSeed(primarySeedBytes, {
-			purpose: 44, // BIP-44 (default)
-			coinType: App.coinType,
-			versions: App.hdVersions,
-		});
+		let walletKey = await DashHd.fromSeed(primarySeedBytes /*, App.seedOpts*/);
 		let walletId = await DashHd.toId(walletKey);
 		let primaryIndex = await dbGet(`wallet-${walletId}-primary-index`, 0);
 		let coinjoinIndex = await dbGet(`wallet-${walletId}-coinjoin-index`, 1);
