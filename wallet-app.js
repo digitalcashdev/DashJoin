@@ -122,49 +122,152 @@ import Wallet from "./wallet.js";
 	let sessionSalt = "";
 
 	let session = {};
-	session.getChangeAddress = async function () {
-		let keyStates = await Wallet.getUnusedKeys(
-			currentSession.changeKeyInfo.accountId,
-			currentSession.changeKeyInfo,
-			25, // TODO create a function to reserve keys (marked used)
-		);
-		void knuthShuffle(keyStates);
-		let changeAddress = keyStates[0].address;
-		return changeAddress;
-	};
+
 	session.accountIndex = 0;
 	// session.coinjoinIndex = 0;
 	session.mainnet = {
 		/** @type {import('dashhd').HDWallet} */ //@ts-expect-error
 		walletKey: null,
 		walletId: "",
+		/** @type {import('./wallet.js').AccountInfo} */ //@ts-expect-error
+		accountInfo: null,
 		accountId: "",
 		/** @type {import('./wallet.js').XKeyInfo} */ //@ts-expect-error
 		receiveKeyInfo: null,
 		/** @type {import('./wallet.js').XKeyInfo} */ //@ts-expect-error
 		changeKeyInfo: null,
 		/** @type {import('./wallet.js').XKeyInfo} */ //@ts-expect-error
-		cjKeyInfo: null,
+		denomKeyInfo: null,
 	};
 	session.testnet = {
 		/** @type {import('dashhd').HDWallet} */ //@ts-expect-error
 		walletKey: null,
 		walletId: "",
+		/** @type {import('./wallet.js').AccountInfo} */ //@ts-expect-error
+		accountInfo: null,
 		accountId: "",
 		/** @type {import('./wallet.js').XKeyInfo} */ //@ts-expect-error
 		receiveKeyInfo: null,
 		/** @type {import('./wallet.js').XKeyInfo} */ //@ts-expect-error
 		changeKeyInfo: null,
 		/** @type {import('./wallet.js').XKeyInfo} */ //@ts-expect-error
-		cjKeyInfo: null,
+		denomKeyInfo: null,
 	};
 	let currentSession = session.mainnet;
+
+	session._minAddressSelectionPool = 10;
+
+	/**
+	 * Select count at random from a given pool
+	 * @param {Number} count
+	 * @param {Number} [pool=count*10] - set same as count for no randomization
+	 */
+	session.getReceiveAddresses = async function (count, pool = 0) {
+		if (!pool) {
+			pool = count * session._minAddressSelectionPool;
+		}
+
+		let keyStates = await Wallet.getUnusedKeys(
+			currentSession.receiveKeyInfo.accountId,
+			currentSession.receiveKeyInfo,
+			pool, // TODO create a function to reserve keys (marked used)
+		);
+
+		if (pool !== count) {
+			void knuthShuffle(keyStates);
+			keyStates = keyStates.slice(0, count);
+		}
+
+		/** @type {Array<String>} */
+		let receiveAddresses = [];
+		for (let keyState of keyStates) {
+			receiveAddresses.push(keyState.address);
+		}
+
+		return receiveAddresses;
+	};
+	session.getReceiveAddress = async function () {
+		let addresses = await session.getReceiveAddresses(1, 1);
+		let address = addresses[0];
+		return address;
+	};
+
+	/**
+	 * Select count at random from a given pool
+	 * @param {Number} count
+	 * @param {Number} [pool=count*10] - set same as count for no randomization
+	 */
+	session.getChangeAddresses = async function (count, pool = 0) {
+		if (!pool) {
+			pool = count * session._minAddressSelectionPool;
+		}
+
+		let keyStates = await Wallet.getUnusedKeys(
+			currentSession.changeKeyInfo.accountId,
+			currentSession.changeKeyInfo,
+			pool, // TODO create a function to reserve keys (marked used)
+		);
+
+		if (pool !== count) {
+			void knuthShuffle(keyStates);
+			keyStates = keyStates.slice(0, count);
+		}
+
+		/** @type {Array<String>} */
+		let changeAddresses = [];
+		for (let keyState of keyStates) {
+			changeAddresses.push(keyState.address);
+		}
+
+		return changeAddresses;
+	};
+	session.getChangeAddress = async function () {
+		let addresses = await session.getChangeAddresses(1, 1);
+		let address = addresses[0];
+		return address;
+	};
+
+	/**
+	 * Select count (default at random) from a given pool
+	 * @param {Number} count
+	 * @param {Number} [pool=count*10] - set same as count for no randomization
+	 */
+	session.getCJDenomAddresses = async function (count, pool = 0) {
+		if (!pool) {
+			pool = count * session._minAddressSelectionPool;
+		}
+
+		let keyStates = await Wallet.getUnusedKeys(
+			currentSession.denomKeyInfo.accountId,
+			currentSession.denomKeyInfo,
+			pool, // TODO create a function to reserve keys (marked used)
+		);
+
+		if (pool !== count) {
+			void knuthShuffle(keyStates);
+			keyStates = keyStates.slice(0, count);
+		}
+
+		/** @type {Array<String>} */
+		let denomAddresses = [];
+		for (let keyState of keyStates) {
+			denomAddresses.push(keyState.address);
+		}
+
+		return denomAddresses;
+	};
+	session.getCJDenomAddress = async function () {
+		let addresses = await session.getCJDenomAddresses(1, 1);
+		let address = addresses[0];
+		return address;
+	};
 
 	App.__DANGEROUS_showSecrets = async function () {
 		return {
 			seedBytes: sessionSeedBytes,
 			phrase: sessionPhrase,
 			salt: sessionSalt,
+			current: currentSession,
 			mainnet: session.mainnet,
 			testnet: session.testnet,
 		};
@@ -424,6 +527,18 @@ import Wallet from "./wallet.js";
 		let utxos = [];
 		let spendableAddrs = Object.keys(deltasMap);
 		for (let address of spendableAddrs) {
+			let keyState = Wallet.keysByAddress[address];
+			if (keyState.network !== App.currentNetwork.network) {
+				continue;
+			}
+
+			let isCoinJoinLocked =
+				keyState.usage !== Wallet.USAGE_RECEIVE &&
+				keyState.usage !== Wallet.USAGE_CHANGE;
+			if (isCoinJoinLocked) {
+				continue;
+			}
+
 			let info = deltasMap[address];
 			info.balance = DashTx.sum(info.deltas);
 
@@ -612,18 +727,6 @@ import Wallet from "./wallet.js";
 		deltasMap = {};
 		// // keysMap = {}; // this is reference-only
 
-		let accountInfo = await Wallet.rawGetAccountKey(
-			App.currentNetwork.network,
-			currentSession.walletKey,
-			session.accountIndex,
-		);
-		console.log(
-			`DEBUG ACCOUNT_KEY_INFO`,
-			App.currentNetwork.coinType,
-			session.accountIndex,
-			accountInfo,
-		);
-
 		// TODO Prioritize
 		// - spendable keys first
 		// - unused receive keys next
@@ -647,10 +750,10 @@ import Wallet from "./wallet.js";
 			);
 			if (u.usage === Wallet.USAGE_RECEIVE) {
 				currentSession.receiveKeyInfo = usageKeyInfo;
-			} else if (u.usage === Wallet.USAGE_RECEIVE) {
+			} else if (u.usage === Wallet.USAGE_CHANGE) {
 				currentSession.changeKeyInfo = usageKeyInfo;
 			} else if (u.usage === Wallet.USAGE_COINJOIN) {
-				currentSession.cjKeyInfo = usageKeyInfo;
+				currentSession.denomKeyInfo = usageKeyInfo;
 			} else {
 				// ignore for now
 			}
@@ -661,7 +764,7 @@ import Wallet from "./wallet.js";
 			);
 
 			let keyStates = await Wallet.getUnusedKeys(
-				accountInfo.accountId,
+				currentSession.accountInfo.accountId,
 				usageKeyInfo,
 				u.count,
 			);
@@ -775,7 +878,7 @@ import Wallet from "./wallet.js";
 	/**
 	 * @param {Event} event
 	 */
-	App.sendDash = async function (event) {
+	App.$sendDash = async function (event) {
 		event.preventDefault();
 
 		let amountStr = $("[data-id=send-amount]").value || "0";
@@ -837,17 +940,25 @@ import Wallet from "./wallet.js";
 		console.log("DEBUG Available balance:", balance);
 		console.log("DEBUG Amount:", amount);
 
-		if (!inputs) {
-			if (!utxos) {
-				throw new Error(`type fail: neither 'inputs' nor 'utxos' is set`);
-			}
-		}
 		let output = { satoshis, address };
-		//@ts-expect-error
-		let draft = await draftWalletTx(utxos, inputs, output);
+
+		/** @type {import('dashtx').TxDraft} */ //@ts-expect-error
+		let draftTx = null;
+		if (inputs) {
+			if (0 === satoshis) {
+				draftTx = await draftFullBalanceTransfer(inputs, output);
+			} else {
+				draftTx = await draftPayWithAllAndReturnChange(inputs, output);
+			}
+		} else if (utxos) {
+			draftTx = await draftPayWithSomeAndReturnChange(utxos, output);
+		} else {
+			throw new Error(`type fail: neither 'inputs' nor 'utxos' is set`);
+		}
+		let draft = await completeAndSortDraft(draftTx);
 
 		amount = output.satoshis / SATS;
-		$("[data-id=send-dust]").textContent = draft.tx.feeTarget;
+		$("[data-id=send-dust]").textContent = draft.tx.feeTarget.toString();
 		$("[data-id=send-amount]").textContent = toFixed(amount, 8);
 
 		let signedTx = await dashTx.legacy.finalizePresorted(draft.tx);
@@ -1070,32 +1181,86 @@ import Wallet from "./wallet.js";
 	};
 
 	/**
-	 * @param {Array<import('dashtx').TxInput>?} utxos
 	 * @param {Array<import('dashtx').TxInput>} inputs
 	 * @param {import('dashtx').TxOutput} output
 	 */
-	async function draftWalletTx(utxos, inputs, output) {
-		let draftTx = dashTx.legacy.draftSingleOutput({ utxos, inputs, output });
-		console.log("DEBUG draftTx", draftTx);
+	async function draftFullBalanceTransfer(inputs, output) {
+		if (output.satoshis !== 0) {
+			throw new Error(
+				"output.satoshis must be set to 0 for a full balance transfer",
+			);
+		}
+
+		let draftTx = dashTx.legacy.draftSingleOutput({
+			utxos: null,
+			inputs: inputs,
+			output: output,
+		});
+		return draftTx;
+	}
+
+	/**
+	 * @param {Array<import('dashtx').TxInput>} inputs
+	 * @param {import('dashtx').TxOutput} output
+	 */
+	async function draftPayWithAllAndReturnChange(inputs, output) {
+		if (!output.satoshis) {
+			throw new Error(
+				"output.satoshis must be set to a specific amount to determine what change to return",
+			);
+		}
+
+		let draftTx = dashTx.legacy.draftSingleOutput({
+			utxos: null,
+			inputs: inputs,
+			output: output,
+		});
+		return draftTx;
+	}
+
+	/**
+	 * @param {Array<import('dashtx').TxInput>} utxos
+	 * @param {import('dashtx').TxOutput} output
+	 */
+	async function draftPayWithSomeAndReturnChange(utxos, output) {
+		let draftTx = dashTx.legacy.draftSingleOutput({
+			utxos: utxos,
+			inputs: null,
+			output: output,
+		});
+		return draftTx;
+	}
+
+	/**
+	 * @param {import('dashtx').TxDraft} draftTx
+	 */
+	async function completeAndSortDraft(draftTx) {
+		// let draftTx = await Tx.createLegacyTx(coins, outputs, changeOutput);
+		// { version, inputs, outputs, changeIndex, locktime }
+		// let change = txInfo.outputs[txInfo.changeIndex];
+		// console.log("DEBUG draftTx", draftTx);
 
 		let changeOutput = draftTx.outputs[1];
 		if (changeOutput) {
-			let address = changeAddrs.shift();
+			let address = await session.getChangeAddress();
 			changeOutput.address = address;
 		}
 
 		// See https://github.com/dashhive/DashTx.js/pull/77
 		for (let input of draftTx.inputs) {
-			let addressInfo = Wallet.keysByAddress[input.address];
+			let address = input.address || "";
+			let keyState = Wallet.keysByAddress[address];
 			Object.assign(input, {
-				publicKey: addressInfo.publicKey,
-				pubKeyHash: addressInfo.pubKeyHash,
+				publicKey: keyState.publicKey, // bytes or hex?
+				pubKeyHash: keyState.pubKeyHash,
 			});
 		}
+
 		for (let output of draftTx.outputs) {
 			if (output.pubKeyHash) {
 				continue;
 			}
+			// TODO this use needs a different name (ex: coinjoinMemo)
 			if (output.memo) {
 				draftTx.feeTarget += output.satoshis;
 				output.satoshis = 0;
@@ -1305,6 +1470,18 @@ import Wallet from "./wallet.js";
 		// 	`wallet-${currentSession.walletId}-coinjoin-index`,
 		// 	USAGE_COINJOIN,
 		// );
+
+		currentSession.accountInfo = await Wallet.rawGetAccountKey(
+			App.currentNetwork.network,
+			currentSession.walletKey,
+			session.accountIndex,
+		);
+		console.log(
+			`DEBUG ACCOUNT_KEY_INFO`,
+			App.currentNetwork.coinType,
+			session.accountIndex,
+			currentSession.accountInfo,
+		);
 
 		let seedHex = DashKeys.utils.bytesToHex(sessionSeedBytes);
 		await App._$renderWalletSettings(
@@ -1790,28 +1967,76 @@ import Wallet from "./wallet.js";
 	/**
 	 * @param {Event} event
 	 */
-	App.denominateCoins = async function (event) {
+	App.$denominateCoins = async function (event) {
 		event.preventDefault();
-
-		// {
-		// 	let addrs = Object.keys(deltasMap);
-		// 	spendableAddrs.length = 0;
-
-		// 	for (let address of addrs) {
-		// 		let info = deltasMap[address];
-		// 		if (info.balance === 0) {
-		// 			continue;
-		// 		}
-		// 		spendableAddrs.push(address);
-		// 	}
-		// }
-
 		let slots = dbGet("cash-drawer-control");
 
-		let priorityGroups = groupSlotsByPriorityAndAmount(slots);
+		// TODO
+		// - getAccountUtxos
+		// - getCJUtxos
+		let utxos = getAllUtxos();
 
+		let denomAddrs = await session.getCJDenomAddresses(500, 500);
+		let changeAddr = await session.getChangeAddress();
+		let draftTx = await App.draftDenominations(
+			slots,
+			utxos,
+			denomAddrs,
+			changeAddr,
+		);
+		console.log("denominationTx", draftTx);
+		for (let output of draftTx.outputs) {
+			let address = output.address || "";
+			let keyState = Wallet.keysByAddress[address];
+			Object.assign(output, { pubKeyHash: keyState.pubKeyHash });
+		}
+
+		let signedTx = await dashTx.hashAndSignAll(
+			draftTx,
+			// jshint bitwise: false
+			DashTx.SIGHASH_ALL | DashTx.SIGHASH_ANYONECANPAY,
+		);
+		{
+			console.log("DEBUG confirming signed tx", signedTx);
+			let satsOut = DashTx.sum(signedTx.outputs);
+			let amount = satsOut / SATS;
+			let amountStr = toFixed(amount, 4);
+			let confirmed = window.confirm(
+				`Really denominate ${amountStr} to ${signedTx.outputs.length} addresses (+change)?`,
+			);
+			if (!confirmed) {
+				return;
+			}
+		}
+
+		void (await App._$commitWalletTx(signedTx));
+
+		window.alert("Success! Denominated coins are locked for Coin Join use.");
+	};
+
+	/**
+	 * @typedef TxOutputMini
+	 * @prop {Number} satoshis
+	 */
+
+	/**
+	 * @param {Array<CJSlot>} slots
+	 * @param {Array<import('dashtx').TxInput>} utxos
+	 * @param {Array<String>} denomAddrs
+	 * @param {String} changeAddr
+	 * @returns {import('dashtx').TxDraft}
+	 */
+	App.draftDenominations = function (slots, utxos, denomAddrs, changeAddr) {
+		let priorityGroups = groupSlotsByPriorityAndAmount(slots);
 		let priorities = Object.keys(priorityGroups);
 		priorities.sort(sortNumberDesc);
+
+		/** @type {import('dashtx').TxDraft} */ //@ts-expect-error
+		let draftTx = null;
+		/** @type {Array<TxOutputMini>} */
+		let outputs = [];
+		/** @type {Partial<import('dashtx').TxOutput>} */
+		let changeOutput = { address: changeAddr };
 
 		for (let priority of priorities) {
 			let slots = priorityGroups[priority].slice(0);
@@ -1827,72 +2052,40 @@ import Wallet from "./wallet.js";
 					continue;
 				}
 
-				let utxos = getAllUtxos();
-				let coins = DashTx._legacySelectOptimalUtxos(utxos, slot.denom);
-				let sats = DashTx.sum(coins);
-				if (sats < slot.denom) {
-					console.log(`not enough coins for ${slot.denom}`);
-					continue;
+				let output = {
+					satoshis: slot.denom,
+					address: denomAddrs.shift(),
+				};
+				if (!output.address) {
+					break;
 				}
-
-				let now = Date.now();
-				for (let coin of coins) {
-					coin.reserved = now;
+				try {
+					let draftOutputs = outputs.slice(0);
+					draftOutputs.push(output);
+					draftTx = DashTx.createLegacyTx(utxos, draftOutputs, changeOutput);
+				} catch (e) {
+					//@ts-expect-error
+					let isFeeError = e.message.includes("fee");
+					if (isFeeError) {
+						continue;
+					}
+					throw e;
 				}
+				outputs.push(output);
 				slot.need -= 1;
 
-				// TODO DashTx.
-				console.log("Found coins to make denom", slot.denom, coins);
-				let roundRobiner = createRoundRobin(slots, slot);
-				// roundRobiner();
-
-				let address = receiveAddrs.shift();
-				let satoshis = slot.denom;
-				let output = { satoshis, address };
-
-				void (await confirmAndBroadcastAndCompleteTx(coins, output).then(
-					roundRobiner,
-				));
+				console.log("Found coins to make denom", slot.denom, draftTx.inputs);
+				if (slot.need >= 1) {
+					// We use a round-robin strategy with for slots with the same
+					// priority. We put this one back in the list so it can come up
+					// again after the next one in line.
+					slots.push(slot);
+				}
 			}
 		}
+
+		return draftTx;
 	};
-
-	/**
-	 * @param {Array<CJSlot>} slots
-	 * @param {CJSlot} slot
-	 */
-	function createRoundRobin(slots, slot) {
-		return function () {
-			if (slot.need >= 1) {
-				// round-robin same priority
-				slots.push(slot);
-			}
-		};
-	}
-
-	/**
-	 * @param {Array<import('dashtx').TxInput>} inputs
-	 * @param {import('dashtx').TxOutput} output
-	 */
-	async function confirmAndBroadcastAndCompleteTx(inputs, output) {
-		let utxos = null;
-		let draft = await draftWalletTx(utxos, inputs, output);
-
-		let signedTx = await dashTx.legacy.finalizePresorted(draft.tx);
-		{
-			console.log("DEBUG confirming signed tx", signedTx);
-			let amount = output.satoshis / SATS;
-			let amountStr = toFixed(amount, 4);
-			let confirmed = window.confirm(
-				`Really send ${amountStr} to ${output.address}?`,
-			);
-			if (!confirmed) {
-				return;
-			}
-		}
-
-		void (await App._$commitWalletTx(signedTx));
-	}
 
 	/**
 	 * @param {Array<CJSlot>} slots
@@ -2690,6 +2883,7 @@ import Wallet from "./wallet.js";
 			Object.assign(coin, { outputIndex: coin.index });
 			inputs.push(coin);
 
+			// TODO get cj addresses coinjoin
 			let output = {
 				address: receiveAddrs.shift(),
 				satoshis: denom,
