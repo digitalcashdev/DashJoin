@@ -438,7 +438,10 @@ import Wallet from "./wallet.js";
 				// address = await DashKeys.pkhToAddr(pkhBytes, { version: App.currentNetwork.network });
 			}
 
-			let keyState = Wallet.keysByAddress[address];
+			let keyState = Wallet.getKeyStateByAddress(
+				App.currentNetwork.network,
+				address,
+			);
 			// return keyState.privateKey;
 
 			// if (!keyState.privateKey) {
@@ -527,8 +530,11 @@ import Wallet from "./wallet.js";
 		let utxos = [];
 		let spendableAddrs = Object.keys(deltasMap);
 		for (let address of spendableAddrs) {
-			let keyState = Wallet.keysByAddress[address];
-			if (keyState.network !== App.currentNetwork.network) {
+			let keyState = Wallet.getKeyStateByAddress(
+				App.currentNetwork.network,
+				address,
+			);
+			if (!keyState) {
 				continue;
 			}
 
@@ -543,7 +549,6 @@ import Wallet from "./wallet.js";
 			info.balance = DashTx.sum(info.deltas);
 
 			for (let coin of info.deltas) {
-				let keyState = Wallet.keysByAddress[coin.address];
 				Object.assign(coin, {
 					outputIndex: coin.index,
 					denom: DashJoin.getDenom(coin.satoshis),
@@ -845,7 +850,10 @@ import Wallet from "./wallet.js";
 			if (info.balance === 0) {
 				continue;
 			}
-			let keyState = Wallet.keysByAddress[addr];
+			let keyState = Wallet.getKeyStateByAddress(
+				App.currentNetwork.network,
+				addr,
+			);
 			if (keyState.network !== App.currentNetwork.network) {
 				console.log(`DEBUG keyState`, keyState);
 				continue;
@@ -894,7 +902,11 @@ import Wallet from "./wallet.js";
 			window.alert(err.message);
 			throw err;
 		}
-		if (!Wallet.keysByAddress[address]) {
+		let keyState = Wallet.getKeyStateByAddress(
+			App.currentNetwork.network,
+			address,
+		);
+		if (!keyState) {
 			foreignAddresses[address] = true;
 		}
 
@@ -1249,7 +1261,10 @@ import Wallet from "./wallet.js";
 		// See https://github.com/dashhive/DashTx.js/pull/77
 		for (let input of draftTx.inputs) {
 			let address = input.address || "";
-			let keyState = Wallet.keysByAddress[address];
+			let keyState = Wallet.getKeyStateByAddress(
+				App.currentNetwork.network,
+				address,
+			);
 			Object.assign(input, {
 				publicKey: keyState.publicKey, // bytes or hex?
 				pubKeyHash: keyState.pubKeyHash,
@@ -1362,15 +1377,22 @@ import Wallet from "./wallet.js";
 	}
 
 	function renderAddresses() {
-		let usedAddrs = Object.keys(Wallet._used);
+		let usedAddrs = Object.keys(
+			Wallet._caches[App.currentNetwork.network].used,
+		);
 		$("[data-id=spent-count]").textContent = usedAddrs.length.toString();
 		$("[data-id=spent]").textContent = usedAddrs.join("\n");
 
 		let receiveAddrs = [];
 		let changeAddrs = [];
-		let unusedAddrs = Object.keys(Wallet._unused);
+		let unusedAddrs = Object.keys(
+			Wallet._caches[App.currentNetwork.network].unused,
+		);
 		for (let address of unusedAddrs) {
-			let keyState = Wallet.keysByAddress[address];
+			let keyState = Wallet.getKeyStateByAddress(
+				App.currentNetwork.network,
+				address,
+			);
 			if (!keyState) {
 				console.log(address, Wallet);
 				continue;
@@ -1493,7 +1515,8 @@ import Wallet from "./wallet.js";
 		);
 		await App._walletDerive();
 
-		let addresses = Object.keys(Wallet.keysByAddress);
+		let keysByAddress = Wallet.getCachedKeysMap(App.currentNetwork.network);
+		let addresses = Object.keys(keysByAddress);
 		await updateDeltas(addresses);
 		renderAddresses();
 		renderCoins();
@@ -1984,10 +2007,18 @@ import Wallet from "./wallet.js";
 			denomAddrs,
 			changeAddr,
 		);
+		if (!draftTx) {
+			window.alert(
+				`Cash Drawer preferences are already met.\nIncrease the number of desired coins to denominate more.`,
+			);
+			return;
+		}
+
 		console.log("denominationTx", draftTx);
+		let keysByAddress = Wallet.getCachedKeysMap(App.currentNetwork.network);
 		for (let output of draftTx.outputs) {
 			let address = output.address || "";
-			let keyState = Wallet.keysByAddress[address];
+			let keyState = keysByAddress[address];
 			Object.assign(output, { pubKeyHash: keyState.pubKeyHash });
 		}
 
@@ -2011,7 +2042,7 @@ import Wallet from "./wallet.js";
 
 		void (await App._$commitWalletTx(signedTx));
 
-		window.alert("Success! Denominated coins are locked for Coin Join use.");
+		window.alert(`Success! Denominated coins are locked for Coin Join use.`);
 	};
 
 	/**
@@ -2038,6 +2069,7 @@ import Wallet from "./wallet.js";
 		/** @type {Partial<import('dashtx').TxOutput>} */
 		let changeOutput = { address: changeAddr };
 
+		let needsMore = false;
 		for (let priority of priorities) {
 			let slots = priorityGroups[priority].slice(0);
 			slots.sort(sortSlotsByDenomDesc);
@@ -2051,6 +2083,7 @@ import Wallet from "./wallet.js";
 				if (!isNeeded) {
 					continue;
 				}
+				needsMore = true;
 
 				let output = {
 					satoshis: slot.denom,
@@ -2081,6 +2114,12 @@ import Wallet from "./wallet.js";
 					// again after the next one in line.
 					slots.push(slot);
 				}
+			}
+		}
+
+		if (!outputs.length) {
+			if (needsMore) {
+				throw new Error("not enough coins to meet denomination targets");
 			}
 		}
 
