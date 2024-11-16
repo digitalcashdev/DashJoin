@@ -24,6 +24,7 @@ let DashKeys = globalThis.DashKeys || require("dashkeys");
 
 /**
  * @typedef KeyInfo
+ * @prop {String} network
  * @prop {WalletID} walletId
  * @prop {AccountID} accountId
  * @prop {Number} account
@@ -85,8 +86,45 @@ Wallet.COINTYPE_DASH = COINTYPE_DASH;
 Wallet.COINTYPE_MAINNET = COINTYPE_DASH;
 Wallet.COINTYPE_TESTNET = COINTYPE_TESTNET; // testnet (for all coins)
 
-/** @type {Object.<Address, KeyState>} */
-Wallet.keysByAddress = {};
+/** @type {Object.<AccountID, Array<import('dashhd').HDXKey>>} */
+Wallet._coinjoinXPrvs = {};
+
+/**
+ * @typedef KeyStateByKind
+ * @prop {Object.<Address, KeyState>} keysByAddress
+ * @prop {Object.<Address, KeyState>} spendable
+ * @prop {Object.<Address, KeyState>} unused
+ * @prop {Object.<Address, KeyState>} reserved
+ * @prop {Object.<Address, KeyState>} used
+ */
+
+/** @type {Object.<String, KeyStateByKind>} */
+Wallet._caches = {};
+
+Wallet._caches.mainnet = {
+	keysByAddress: {},
+	/** @type {Object.<Address, KeyState>} */
+	spendable: {},
+	/** @type {Object.<Address, KeyState>} */
+	unused: {},
+	/** @type {Object.<Address, KeyState>} */
+	reserved: {},
+	/** @type {Object.<Address, KeyState>} */
+	used: {},
+};
+
+Wallet._caches.testnet = {
+	/** @type {Object.<Address, KeyState>} */
+	keysByAddress: {},
+	/** @type {Object.<Address, KeyState>} */
+	spendable: {},
+	/** @type {Object.<Address, KeyState>} */
+	unused: {},
+	/** @type {Object.<Address, KeyState>} */
+	reserved: {},
+	/** @type {Object.<Address, KeyState>} */
+	used: {},
+};
 
 Wallet._emptyKeyStateMini = {
 	satoshisList: [],
@@ -150,21 +188,6 @@ Wallet._getState = function (accountId, usage) {
 
 	return usageState;
 };
-
-/** @type {Object.<Address, KeyState>} */
-Wallet._spendable = {};
-
-/** @type {Object.<Address, KeyState>} */
-Wallet._unused = {};
-
-/** @type {Object.<Address, KeyState>} */
-Wallet._reserved = {};
-
-/** @type {Object.<Address, KeyState>} */
-Wallet._used = {};
-
-/** @type {Object.<AccountID, Array<import('dashhd').HDXKey>>} */
-Wallet._coinjoinXPrvs = {};
 
 Wallet.init = async function () {
 	// We're limited to about 120,000 keys with _very_ limited data
@@ -407,6 +430,19 @@ Wallet.getUnusedKeys = async function (accountId, xkeyInfo, count = 100) {
 	return keyStates;
 };
 
+/** @param {String} network */
+Wallet.getCachedKeysMap = function (network) {
+	return Wallet._caches[network].keysByAddress;
+};
+
+/**
+ * @param {String} network
+ * @param {String} address
+ */
+Wallet.getKeyStateByAddress = function (network, address) {
+	return Wallet._caches[network].keysByAddress[address];
+};
+
 /**
  * Get (offline-cached) list of unused receive addresses
  * @param {AccountID} accountId
@@ -437,24 +473,26 @@ Wallet.getKeyStates = async function (
  * @param {KeyState} keyState
  */
 Wallet.updateKeyState = function (usageState, keyState) {
-	Wallet.keysByAddress[keyState.address] = keyState;
+	let caches = Wallet._caches[keyState.network];
+	caches.keysByAddress[keyState.address] = keyState;
+
+	delete caches.unused[keyState.address];
+	delete caches.spendable[keyState.address];
+	delete caches.reserved[keyState.address];
+	delete caches.used[keyState.address];
 
 	delete usageState.unused[keyState.index];
-	delete Wallet._unused[keyState.address];
 	delete usageState.spendable[keyState.index];
-	delete Wallet._spendable[keyState.address];
 	delete usageState.reserved[keyState.index];
-	delete Wallet._reserved[keyState.address];
 	delete usageState.used[keyState.index];
-	delete Wallet._used[keyState.address];
 
 	if (keyState.satoshisList?.length) {
 		// TODO if this is reused, it must be handled differently
 		usageState.spendable[keyState.index] = keyState;
-		Wallet._spendable[keyState.address] = keyState;
+		caches.spendable[keyState.address] = keyState;
 	} else if (keyState.hasBeenUsed) {
 		usageState.used[keyState.index] = keyState;
-		Wallet._used[keyState.address] = keyState;
+		caches.used[keyState.address] = keyState;
 	} else if (keyState.reservedAt || keyState.sharedAt) {
 		// TODO check if reservation is expired
 		// also we need two types of reservations:
@@ -462,10 +500,10 @@ Wallet.updateKeyState = function (usageState, keyState) {
 		// - internal "reserved at"
 		// anything public (i.e. shared via QR, email, etc) should be considered spent
 		usageState.reserved[keyState.index] = keyState;
-		Wallet._reserved[keyState.address] = keyState;
+		caches.reserved[keyState.address] = keyState;
 	} else {
 		usageState.unused[keyState.index] = keyState;
-		Wallet._unused[keyState.address] = keyState;
+		caches.unused[keyState.address] = keyState;
 	}
 };
 
@@ -627,7 +665,9 @@ Wallet.Addresses.setDeltas = async function (deltas) {
 	}
 
 	let address = deltas[0]?.address;
-	let keyState = Wallet.keysByAddress[address];
+	let keyState =
+		Wallet._caches.mainnet.keysByAddress[address] ||
+		Wallet._caches.testnet.keysByAddress[address];
 	if (!keyState) {
 		throw new Error(`address '${address}' not in addresses cache`);
 	}
