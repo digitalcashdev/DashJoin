@@ -897,7 +897,6 @@ import Wallet from "./wallet.js";
 		addresses = addresses.filter(Boolean);
 		if (!addresses.length) {
 			let err = new Error(`missing payment 'address' to send funds to`);
-			window.alert(err.message);
 			throw err;
 		}
 		for (let address of addresses) {
@@ -945,7 +944,6 @@ import Wallet from "./wallet.js";
 			let err = new Error(
 				`requested to send '${amountStr}' when only '${availableStr}' is available`,
 			);
-			window.alert(err.message);
 			throw err;
 		}
 
@@ -1054,7 +1052,7 @@ import Wallet from "./wallet.js";
 		try {
 			privKey = await keyUtils.getPrivateKey({ address });
 		} catch (e) {
-			window.alert(`invalid address '${address}'`);
+			throw new Error(`invalid address '${address}'`);
 		}
 		let wif = await DashKeys.privKeyToWif(privKey, {
 			version: App.currentNetwork.network,
@@ -1343,7 +1341,6 @@ import Wallet from "./wallet.js";
 			if (!output.address) {
 				if (typeof output.memo !== "string") {
 					let err = new Error(`output is missing 'address' and 'pubKeyHash'`);
-					window.alert(err.message);
 					throw err;
 				}
 			} else {
@@ -1484,7 +1481,6 @@ import Wallet from "./wallet.js";
 		let info = deltasMap[address];
 		if (!info) {
 			let err = new Error(`coins for '${address}' disappeared`);
-			window.alert(err.message);
 			throw err;
 		}
 		for (let delta of info.deltas) {
