@@ -414,7 +414,7 @@ Wallet.getUnusedKeys = async function (accountId, xkeyInfo, count = 100) {
 		usageState = await Wallet.getKeyStates(accountId, xkeyInfo, offset, limit);
 		indexes = Object.keys(usageState.unused);
 		n = indexes.length;
-		offset = limit - 1;
+		offset += limit;
 		// limit = count - n; // overshoot rather than undershoot
 	}
 
@@ -515,7 +515,7 @@ Wallet.updateKeyState = function (usageState, keyState) {
  */
 Wallet.rawGetKeyInfos = async function (xkeyInfo, offset = 0, limit = 100) {
 	let keyInfos = [];
-	let end = offset + limit + -1;
+	let end = offset + limit;
 	for (let index = offset; index < end; index += 1) {
 		let addressKey;
 		try {
