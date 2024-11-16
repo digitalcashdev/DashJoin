@@ -216,7 +216,7 @@
 							<br />
 						</label>
 						<label
-							>Cash Drawer (<code data-id="cj-balance">0.0000</code>)
+							>Cash Drawer (<code data-id="denom-balance">0.0000</code>)
 							<small>denominated coins</small>
 						</label>
 						<table>
@@ -503,8 +503,8 @@
 				<section>
 					<form>
 						<label
-							>Coins (<code data-id="total-balance">0.0000</code>)
-							<small>unspent outputs</small>
+							>Coin Join Locked (<code data-id="cj-balance">0.0000</code>)
+							<small>will unlock when complete</small>
 						</label>
 						<table>
 							<thead>
@@ -515,17 +515,105 @@
 									<th>Amount</th>
 									<th>🔄</th>
 									<th>🎯</th>
+									<th>HD Path</th>
+									<th>Address</th>
+								</tr>
+							</thead>
+							<tbody data-id="cj-table">
+								<tr>
+									<td class="select">
+										<input disabled type="checkbox" />
+									</td>
+									<td data-name="amount" style="font-family: monospace">
+										-.----
+									</td>
+									<td data-name="rounds" style="font-family: monospace">-</td>
+									<td style="font-family: monospace">
+										<input
+											name="target"
+											type="number"
+											value="16"
+											style="width: 3rem"
+										/>
+									</td>
+									<td
+										data-name="hdpath"
+										style="font-family: monospace; font-size: 0.55rem"
+									>
+										m/44'/-'/-'/-/-
+									</td>
+									<td
+										data-name="address"
+										style="font-family: monospace; font-size: 0.55rem"
+									>
+										----------------------------------
+									</td>
+								</tr>
+							</tbody>
+							<tfoot>
+								<th></th>
+								<th></th>
+								<th></th>
+								<th></th>
+								<th></th>
+								<th></th>
+							</tfoot>
+						</table>
+						<template data-id="cj-row-tmpl">
+							<tr>
+								<td class="select">
+									<input
+										data-name="coin"
+										type="checkbox"
+										value="addr,txid,out"
+									/>
+								</td>
+								<td data-name="amount" style="font-family: monospace"></td>
+								<td data-name="rounds" style="font-family: monospace"></td>
+								<td style="font-family: monospace">
+									<input
+										name="target"
+										type="number"
+										value="16"
+										style="width: 3rem"
+									/>
+								</td>
+								<td
+									data-name="hdpath"
+									style="font-family: monospace; font-size: 0.75rem"
+								></td>
+								<td
+									data-name="address"
+									style="font-family: monospace; font-size: 0.75rem"
+								></td>
+							</tr>
+						</template>
+					</form>
+				</section>
+
+				<br />
+				<section>
+					<form>
+						<label
+							>Coins (<code data-id="total-balance">0.0000</code>)
+							<small>unspent outputs</small>
+						</label>
+						<table>
+							<thead>
+								<tr>
+									<th>
+										<input onchange="App.toggleAll(event)" type="checkbox" />
+									</th>
+									<th>Amount</th>
 									<th>Address</th>
 									<th>TXID</th>
 									<th>Index</th>
 								</tr>
 							</thead>
-							<tbody data-id="coins-table">
+							<tbody data-id="coin-table">
 								<!-- tmpl-balance-row -->
 							</tbody>
 							<tfoot>
-								<th></th>
-								<th></th>
 								<th></th>
 								<th></th>
 								<th></th>
@@ -543,8 +631,6 @@
 									/>
 								</td>
 								<td data-name="amount" style="font-family: monospace"></td>
-								<td data-name="mixes" style="font-family: monospace"></td>
-								<td data-name="target" style="font-family: monospace"></td>
 								<td
 									data-name="address"
 									style="font-family: monospace; font-size: 6pt"

@@ -525,6 +525,7 @@ import Wallet from "./wallet.js";
 	/**
 	 * @param {Object} [opts]
 	 * @param {Boolean} [opts.denom]
+	 * @param {Boolean} [opts.coinjoin]
 	 */
 	function getAllUtxos(opts) {
 		let utxos = [];
@@ -541,7 +542,9 @@ import Wallet from "./wallet.js";
 			let isCoinJoinLocked =
 				keyState.usage !== Wallet.USAGE_RECEIVE &&
 				keyState.usage !== Wallet.USAGE_CHANGE;
-			if (isCoinJoinLocked) {
+			if (isCoinJoinLocked && !opts?.coinjoin) {
+				continue;
+			} else if (!isCoinJoinLocked && opts?.coinjoin) {
 				continue;
 			}
 
@@ -2039,7 +2042,7 @@ import Wallet from "./wallet.js";
 		}
 
 		let cjAmount = cjBalance / SATS;
-		$("[data-id=cj-balance]").textContent = toFixed(cjAmount, 8);
+		$("[data-id=denom-balance]").textContent = toFixed(cjAmount, 8);
 	}
 
 	/**
@@ -2052,7 +2055,7 @@ import Wallet from "./wallet.js";
 		// TODO
 		// - getAccountUtxos
 		// - getCJUtxos
-		let utxos = getAllUtxos();
+		let utxos = getAllUtxos({ denom: false });
 
 		let denomAddrs = await session.getCJDenomAddresses(500, 500);
 		let changeAddr = await session.getChangeAddress();
@@ -2243,6 +2246,25 @@ import Wallet from "./wallet.js";
 		if (a.satoshis > b.satoshis) {
 			return -1;
 		}
+
+		//@ts-expect-error
+		if (a.hdusage < b.hdusage) {
+			return 1;
+		}
+		//@ts-expect-error
+		if (a.hdusage > b.hdusage) {
+			return -1;
+		}
+
+		//@ts-expect-error
+		if (a.hdindex > b.hdindex) {
+			return 1;
+		}
+		//@ts-expect-error
+		if (a.hdindex < b.hdindex) {
+			return -1;
+		}
+
 		return 0;
 	}
 
@@ -2297,33 +2319,43 @@ import Wallet from "./wallet.js";
 	}
 
 	async function renderCoins() {
-		// let addrs = Object.keys(deltasMap);
-		// for (let addr of addrs) {
-		// 	let info = deltasMap[addr];
-		// 	dbSet(addr, info);
-		// }
-
 		let utxos = getAllUtxos();
-		utxos.sort(sortCoinsByDenomAndSatsDesc);
+		void renderSpendableCoins(utxos);
 
-		let keyStates = await Wallet.getUnusedKeys(
-			currentSession.receiveKeyInfo.accountId,
-			currentSession.receiveKeyInfo,
-			1, // TODO create a function to reserve keys (marked used)
-		);
-		let firstReceiveKeyInfo = keyStates[0];
-		console.log(`DEBUG firstReceiveKeyInfo`, firstReceiveKeyInfo);
+		let cjUtxos = getAllUtxos({ coinjoin: true });
+		for (let utxo of cjUtxos) {
+			let keyState = Wallet.getKeyStateByAddress(
+				App.currentNetwork.network,
+				utxo.address,
+			);
+			Object.assign(utxo, {
+				hdusage: keyState.usage,
+				hdindex: keyState.index,
+			});
+		}
+		void renderCoinJoinCoins(cjUtxos);
+
+		let totalBalance = DashTx.sum(utxos);
+		void renderScanToLoad(totalBalance);
+	}
+
+	/**
+	 * @param {Array<FullCoin>} utxos
+	 */
+	async function renderSpendableCoins(utxos) {
+		utxos.sort(sortCoinsByDenomAndSatsDesc);
+		let totalBalance = DashTx.sum(utxos);
 
 		requestAnimationFrame(function () {
 			let elementStrs = [];
 			let template = $("[data-id=coin-row-tmpl]").content;
-			for (let utxo of utxos) {
-				let amount = utxo.satoshis / SATS;
-				Object.assign(utxo, { amount: amount });
+			for (let _utxo of utxos) {
+				let amount = _utxo.satoshis / SATS;
+				let utxo = Object.assign(_utxo, { amount: amount });
 
 				let clone = document.importNode(template, true);
 				if (!clone.firstElementChild) {
-					throw new Error(`coin row template missing child`);
+					throw new Error(`satisfy type checker`);
 				}
 
 				$("[data-name=coin]", clone).value = [
@@ -2336,30 +2368,90 @@ import Wallet from "./wallet.js";
 				if (utxo.denom) {
 					$("[data-name=amount]", clone).style.fontStyle = "italic";
 					$("[data-name=amount]", clone).style.fontWeight = "bold";
-				} else {
-					//
 				}
 				$("[data-name=txid]", clone).textContent = utxo.txid;
-				$("[data-name=output-index]", clone).textContent = utxo.index;
+				$("[data-name=output-index]", clone).textContent =
+					utxo.index.toString();
 
 				elementStrs.push(clone.firstElementChild.outerHTML);
 				//tableBody.appendChild(clone);
 			}
 
-			let totalBalance = DashTx.sum(utxos);
 			let totalAmount = totalBalance / SATS;
 			$("[data-id=total-balance]").innerText = toFixed(totalAmount, 4);
 
-			let $coinsTable = $("[data-id=coins-table]");
+			let $coinsTable = $("[data-id=coin-table]");
 			$coinsTable.textContent = "";
 			$coinsTable.insertAdjacentHTML("beforeend", elementStrs.join("\n"));
 			//$('[data-id=balances]').innerText = balances.join('\n');
+		});
+	}
 
-			if (totalBalance >= MIN_BALANCE) {
-				$('[data-id="load-balance"]').hidden = true;
-				return;
+	/**
+	 * @param {Array<FullCoin>} cjUtxos
+	 */
+	async function renderCoinJoinCoins(cjUtxos) {
+		cjUtxos.sort(sortCoinsByDenomAndSatsDesc);
+		let cjBalance = DashTx.sum(cjUtxos);
+
+		requestAnimationFrame(function () {
+			let elementStrs = [];
+			let template = $("[data-id=cj-row-tmpl]").content;
+			for (let _utxo of cjUtxos) {
+				let amount = _utxo.satoshis / SATS;
+				let utxo = Object.assign(_utxo, { amount: amount });
+
+				let clone = document.importNode(template, true);
+				if (!clone.firstElementChild) {
+					throw new Error(`satisfy type checker`);
+				}
+
+				let keyState = Wallet.getKeyStateByAddress(
+					App.currentNetwork.network,
+					utxo.address,
+				);
+				let round = keyState.usage - Wallet.USAGE_COINJOIN;
+
+				$("[data-name=amount]", clone).textContent = toFixed(utxo.amount, 4);
+				$("[data-name=coin]", clone).value = [
+					utxo.address,
+					utxo.txid,
+					utxo.outputIndex,
+				].join(",");
+				$("[data-name=rounds]", clone).textContent = round.toString();
+				$("[data-name=hdpath]", clone).textContent =
+					`${keyState.hdpath}/${keyState.index}`;
+				$("[data-name=address]", clone).textContent = utxo.address;
+
+				elementStrs.push(clone.firstElementChild.outerHTML);
 			}
 
+			let totalAmount = cjBalance / SATS;
+			$("[data-id=cj-balance]").textContent = toFixed(totalAmount, 4);
+
+			let $coinsTable = $("[data-id=cj-table]");
+			$coinsTable.textContent = "";
+			$coinsTable.insertAdjacentHTML("beforeend", elementStrs.join("\n"));
+		});
+	}
+
+	/**
+	 * @param {Number} totalBalance
+	 */
+	async function renderScanToLoad(totalBalance) {
+		if (totalBalance >= MIN_BALANCE) {
+			$('[data-id="load-balance"]').hidden = true;
+			return;
+		}
+
+		let keyStates = await Wallet.getUnusedKeys(
+			currentSession.receiveKeyInfo.accountId,
+			currentSession.receiveKeyInfo,
+			1, // TODO create a function to reserve keys (marked used)
+		);
+		let firstReceiveKeyInfo = keyStates[0];
+
+		requestAnimationFrame(function () {
 			let [dashAmount, dustAmount] = App._splitBalance(totalBalance);
 			let addrQr = new QRCode({
 				content: `dash:${firstReceiveKeyInfo.address}?`, // leave amount blank
@@ -2415,7 +2507,6 @@ import Wallet from "./wallet.js";
 					continue;
 				}
 
-				console.log("DEBUG denom", denom, coin);
 				denomsMap[denom][coin.address] = coin;
 			}
 		}
@@ -2802,6 +2893,7 @@ import Wallet from "./wallet.js";
 				outputs: outputs,
 			};
 			console.log(`DEBUG dsi input`, dsiInfo);
+			//@ts-expect-error // TODO
 			let dsiBytes = DashJoin.packers.dsi(dsiInfo);
 			console.log(`DEBUG dsi bytes`, p2pHost._host, p2pHost._network, dsiBytes);
 			p2pHost.send(dsiBytes);
@@ -2814,6 +2906,7 @@ import Wallet from "./wallet.js";
 			let dsfTxRequest = DashJoin.parsers.dsf(msg.payload);
 			console.log("DEBUG dsf", dsfTxRequest, inputs);
 
+			//@ts-expect-error // TODO
 			makeSelectedInputsSignable(dsfTxRequest, inputs);
 			let txSigned = await dashTx.hashAndSignAll(dsfTxRequest);
 
@@ -2977,9 +3070,8 @@ import Wallet from "./wallet.js";
 			Object.assign(coin, { outputIndex: coin.index });
 			inputs.push(coin);
 
-			// TODO get cj addresses coinjoin
 			let output = {
-				address: receiveAddrs.shift(),
+				address: "", // TODO get next coinjoin addr receiveAddrs.shift(), XXX
 				satoshis: denom,
 				pubKeyHash: "",
 			};
