@@ -891,25 +891,27 @@ import Wallet from "./wallet.js";
 
 		let amountStr = $("[data-id=send-amount]").value || "0";
 		let amount = parseFloat(amountStr);
-		let satoshis = Math.round(amount * SATS);
-		// if (satoshis === 0) {
-		//     satoshis = null;
-		// }
 
-		let address = $("[data-id=send-address]").value;
-		if (!address) {
+		let addressList = $("[data-id=send-address]").value.trim();
+		let addresses = addressList.split(/[\s,]/);
+		addresses = addresses.filter(Boolean);
+		if (!addresses.length) {
 			let err = new Error(`missing payment 'address' to send funds to`);
 			window.alert(err.message);
 			throw err;
 		}
-		let keyState = Wallet.getKeyStateByAddress(
-			App.currentNetwork.network,
-			address,
-		);
-		if (!keyState) {
-			foreignAddresses[address] = true;
+		for (let address of addresses) {
+			let keyState = Wallet.getKeyStateByAddress(
+				App.currentNetwork.network,
+				address,
+			);
+			if (!keyState) {
+				foreignAddresses[address] = true;
+			}
 		}
 
+		amount *= addresses.length;
+		let satoshis = Math.round(amount * SATS);
 		let balance = 0;
 
 		/** @type {Array<import('dashtx').TxInput>?} */
@@ -947,43 +949,100 @@ import Wallet from "./wallet.js";
 			throw err;
 		}
 
-		console.log("DEBUG Payment Address:", address);
+		console.log("DEBUG Payment Addresses:", addresses);
 		console.log("DEBUG Available coins:", utxos?.length || inputs?.length);
 		console.log("DEBUG Available balance:", balance);
-		console.log("DEBUG Amount:", amount);
+		console.log("DEBUG Amount:", amount * addresses.length);
 
-		let output = { satoshis, address };
+		let friendlyAmount = 0;
+		/** @type {import('dashtx').TxInfoSigned} */ //@ts-expect-error
+		let signedTx = null;
+		if (addresses.length === 1) {
+			let address = addresses[0];
+			let output = { satoshis, address };
 
-		/** @type {import('dashtx').TxDraft} */ //@ts-expect-error
-		let draftTx = null;
-		if (inputs) {
-			if (0 === satoshis) {
-				draftTx = await draftFullBalanceTransfer(inputs, output);
+			/** @type {import('dashtx').TxDraft} */ //@ts-expect-error
+			let draftTx = null;
+			if (inputs) {
+				if (0 === satoshis) {
+					draftTx = await draftFullBalanceTransfer(inputs, output);
+				} else {
+					draftTx = await draftPayWithAllAndReturnChange(inputs, output);
+				}
+			} else if (utxos) {
+				draftTx = await draftPayWithSomeAndReturnChange(utxos, output);
 			} else {
-				draftTx = await draftPayWithAllAndReturnChange(inputs, output);
+				throw new Error(`type fail: neither 'inputs' nor 'utxos' is set`);
 			}
-		} else if (utxos) {
-			draftTx = await draftPayWithSomeAndReturnChange(utxos, output);
+			let draft = await completeAndSortDraft(draftTx);
+			friendlyAmount = output.satoshis / SATS;
+			signedTx = await dashTx.legacy.finalizePresorted(draft.tx);
 		} else {
-			throw new Error(`type fail: neither 'inputs' nor 'utxos' is set`);
+			let coins = utxos;
+			if (inputs) {
+				coins = inputs;
+			} else {
+				if (!satoshis) {
+					throw new Error("you must select inputs or specify an amount");
+				}
+			}
+
+			if (!satoshis) {
+				satoshis = balance / addresses.length;
+			} else {
+				satoshis = satoshis / addresses.length;
+			}
+			satoshis = Math.round(satoshis);
+			friendlyAmount = addresses.length * satoshis;
+			friendlyAmount = friendlyAmount / SATS;
+
+			let outputs = [];
+			for (let address of addresses) {
+				let pkhBytes = await DashKeys.addrToPkh(address, {
+					version: App.currentNetwork.network,
+				});
+				let pubKeyHash = DashKeys.utils.bytesToHex(pkhBytes);
+				let output = { satoshis, address, pubKeyHash };
+				outputs.push(output);
+			}
+
+			let changeAddress = await session.getChangeAddress();
+			let pkhBytes = await DashKeys.addrToPkh(changeAddress, {
+				version: App.currentNetwork.network,
+			});
+			let pubKeyHash = DashKeys.utils.bytesToHex(pkhBytes);
+			let changeOutput = {
+				address: changeAddress,
+				pubKeyHash: pubKeyHash,
+			};
+
+			let draftTx = DashTx.createLegacyTx(coins, outputs, changeOutput);
+			signedTx = await dashTx.hashAndSignAll(
+				draftTx,
+				// jshint bitwise: false
+				DashTx.SIGHASH_ALL | DashTx.SIGHASH_ANYONECANPAY,
+			);
 		}
-		let draft = await completeAndSortDraft(draftTx);
-
-		amount = output.satoshis / SATS;
-		$("[data-id=send-dust]").textContent = draft.tx.feeTarget.toString();
-		$("[data-id=send-amount]").textContent = toFixed(amount, 8);
-
-		let signedTx = await dashTx.legacy.finalizePresorted(draft.tx);
 		console.log("DEBUG signed tx", signedTx);
+
+		let fees = DashTx.appraise(signedTx);
+		$("[data-id=send-dust]").textContent = fees.max.toString();
+		$("[data-id=send-amount]").textContent = toFixed(amount, 8);
 		{
-			let amountStr = toFixed(amount, 4);
-			let confirmed = window.confirm(`Really send ${amountStr} to ${address}?`);
+			let amountStr = toFixed(friendlyAmount, 4);
+			let msg = `Really send ${amountStr} to ${addresses[0]}?`;
+			if (addresses.length > 1) {
+				msg = `Really split ${amountStr} among ${addresses.length} addresses?`;
+			}
+			let confirmed = window.confirm(msg);
 			if (!confirmed) {
 				return;
 			}
 		}
 
-		void (await App._$commitWalletTx(signedTx));
+		/** @type {import('dashtx').TxSummary} */ //@ts-expect-error
+		let summaryTx = signedTx;
+		void (await App._$commitWalletTx(summaryTx));
 	};
 
 	/** @param {Event} event */

@@ -382,7 +382,9 @@
 								</tr>
 								<tr data-denom="10000">
 									<th>
-										<small><em>Collateral</em></small>
+										<small
+											><em>Collateral<br />0.0001</em></small
+										>
 									</th>
 									<th>
 										<select
@@ -401,6 +403,7 @@
 									</th>
 									<th>
 										<input
+											disabled
 											name="want"
 											onkeyup="App.syncCashDrawer(event)"
 											onchange="App.syncCashDrawer(event)"
@@ -410,8 +413,8 @@
 											value="5"
 										/>
 									</th>
-									<th data-name="have">0</th>
-									<th data-name="need">0</th>
+									<th data-name="have">-</th>
+									<th data-name="need">-</th>
 								</tr>
 							</tbody>
 						</table>
@@ -560,7 +563,7 @@
 						<fieldset>
 							<label
 								>Send Amount
-								<small>0 + select coins for full transfer</small>
+								<small>0.0001 for collateral, 0 for full transfer</small>
 								<input
 									type="number"
 									data-id="send-amount"
@@ -588,8 +591,8 @@
 							<!-- </label> -->
 						</fieldset>
 						<label
-							>Send Address
-							<small>base58check-encoded pkh</small>
+							>Send Address(es)
+							<small>comma/space separated</small>
 							<input
 								type="text"
 								data-id="send-address"
