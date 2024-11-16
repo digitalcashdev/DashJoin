@@ -425,6 +425,34 @@
 							<button type="button" onclick="App.createCoinJoinSession(event)">
 								Run CoinJoin
 							</button>
+							<label data-network="testnet">
+								<small
+									><input disabled type="checkbox" checked /> Mix with self
+									(testnet)</small
+								>
+							</label>
+						</fieldset>
+						<fieldset>
+							<label>
+								<small>
+									Default number of rounds
+									<input disabled type="number" value="3" min="2" max="32"
+								/></small>
+							</label>
+							&nbsp;
+							<label>
+								<small>
+									Max simultaneous sessions
+									<input disabled type="number" value="2" min="1" max="12"
+								/></small>
+							</label>
+							&nbsp;
+							<label>
+								<small>
+									Max coins per session
+									<input disabled type="number" value="2" min="1" max="9"
+								/></small>
+							</label>
 						</fieldset>
 					</form>
 				</section>
