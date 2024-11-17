@@ -1,17 +1,17 @@
 // import DashPhrase from "dashphrase";
-import DashHd from "dashhd";
-import DashKeys from "dashkeys";
+// import DashHd from "dashhd";
+// import DashKeys from "dashkeys";
 
 ////@ts-expect-error
 //let DashPhrase = window.DashPhrase;
 
-///** @type {import('dashhd')} */
-////@ts-expect-error
-//let DashHd = globalThis.DashHd || require("dashhd");
+/** @type {import('dashhd')} */
+//@ts-expect-error
+let DashHd = globalThis.DashHd || require("dashhd");
 
-///** @type {import('dashkeys')} */
-////@ts-expect-error
-//let DashKeys = globalThis.DashKeys || require("dashkeys");
+/** @type {import('dashkeys')} */
+//@ts-expect-error
+let DashKeys = globalThis.DashKeys || require("dashkeys");
 
 ////@ts-expect-error
 //let DashTx = window.DashTx;
