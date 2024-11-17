@@ -110,7 +110,8 @@
   "*.js",
   "bin/**/*.js",
   "lib/**/*.js",
-  "src/**/*.js"
+  "src/**/*.js",
+  "tests/**/*.js"
 ],
   "exclude": ["node_modules"]
 }
