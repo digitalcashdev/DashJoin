@@ -380,10 +380,10 @@
 									<th data-name="have">0</th>
 									<th data-name="need">0</th>
 								</tr>
-								<tr data-denom="10000">
+								<tr data-denom="10500">
 									<th>
 										<small
-											><em>Collateral<br />0.0001</em></small
+											><em>Collateral<br />0.00010500</em></small
 										>
 									</th>
 									<th>
@@ -422,7 +422,7 @@
 							<button type="button" onclick="App.$denominateCoins(event)">
 								Denominate Coins
 							</button>
-							<button type="button" onclick="App.createCoinJoinSession(event)">
+							<button type="button" onclick="App.$createCoinJoinSession(event)">
 								Run CoinJoin
 							</button>
 							<label data-network="testnet">
@@ -436,14 +436,21 @@
 							<label>
 								<small>
 									Default number of rounds
-									<input disabled type="number" value="3" min="2" max="32"
+									<input
+										name="cj-default-rounds"
+										onchange="App.$setDefaultRounds(this.value)"
+										onkeyup="App.$setDefaultRounds(this.value)"
+										type="number"
+										value="16"
+										min="2"
+										max="32"
 								/></small>
 							</label>
 							&nbsp;
 							<label>
 								<small>
 									Max simultaneous sessions
-									<input disabled type="number" value="2" min="1" max="12"
+									<input disabled type="number" value="1" min="1" max="12"
 								/></small>
 							</label>
 							&nbsp;
@@ -590,19 +597,17 @@
 						<template data-id="cj-row-tmpl">
 							<tr>
 								<td class="select">
-									<input
-										data-name="coin"
-										type="checkbox"
-										value="addr,txid,out"
-									/>
+									<input name="cjCoin" type="checkbox" value="addr,txid,out" />
 								</td>
 								<td data-name="amount" style="font-family: monospace"></td>
 								<td data-name="rounds" style="font-family: monospace"></td>
 								<td style="font-family: monospace">
 									<input
-										name="target"
+										name="targetRounds"
 										type="number"
-										value="16"
+										step="1"
+										min="0"
+										max="32"
 										style="width: 3rem"
 									/>
 								</td>
@@ -677,7 +682,7 @@
 						<fieldset>
 							<label
 								>Send Amount
-								<small>0.0001 for collateral, 0 for full transfer</small>
+								<small>0.00010500 for collateral, 0 for full transfer</small>
 								<input
 									type="number"
 									data-id="send-amount"

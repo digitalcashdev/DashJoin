@@ -33,15 +33,16 @@ import Wallet from "./wallet.js";
 	 */
 	function $$(sel, el) {
 		let $els = Array.from((el || document).querySelectorAll(sel));
-		if ($els.length === 0) {
-			throw new Error(`selector '${sel}' selected no elements`);
-		}
+		// if ($els.length === 0) {
+		// 	throw new Error(`selector '${sel}' selected no elements`);
+		// }
 
 		//@ts-expect-error
 		return $els;
 	}
 
 	/**
+	 * An evenly-distributed randomizer algo for crypto- and pseudo-random sorts
 	 * @template T
 	 * @param {Array<T>} array
 	 * @returns {Array<T>}
@@ -90,21 +91,41 @@ import Wallet from "./wallet.js";
 	window.Tools = Tools;
 
 	const SATS = 100000000;
-	const MIN_BALANCE = 100001 * 1000;
+	const MIN_BALANCE = 100001 * 5;
 
 	/**
-	 * @typedef AddressActivity
+	 * @typedef DeltaInfo
 	 * @prop {Number} balance
-	 * @prop {Array<CoinInfo>} deltas
+	 * @prop {Array<CoinDelta>} deltas
 	 */
 
+	/** @typedef {RPCDelta & CoinDeltaPartial &FullCoinPartial} FullCoin */
 	/**
-	 * @typedef CoinInfo
-	 * @prop {String} address
-	 * @prop {Number} index
-	 * @prop {Number} satoshis
+	 * @typedef FullCoinPartial
+	 * @prop {Number} outputIndex
+	 * @prop {Hex} publicKey
+	 * @prop {Hex} pubKeyHash
+	 */
+
+	/** @typedef {RPCDelta & CoinDeltaPartial} CoinDelta */
+	/**
+	 * @typedef CoinDeltaPartial
 	 * @prop {Number} reserved - Date.now()
 	 * @prop {Number} denom
+	 * @prop {Number} [rounds] - typically 16
+	 */
+
+	// Ex: https://trpc.digitalcash.dev/#?method=getaddressdeltas&params=[{%22addresses%22:[%22yN5NEJLnqahrgLhTdRdKzg6hu2CbxdiVUQ%22]}]&submit
+	//
+	/**
+	 * RPC Response for 'getaddressdeltas' and 'getaddressmempool'
+	 * @typedef RPCDelta
+	 * @prop {String} address - 34 char base58check-encoded
+	 * @prop {Uint32} blockindex - index of transaction in the block
+	 * @prop {Uint32} height
+	 * @prop {Uint16} index - treated as 'outputIndex' for debits
+	 * @prop {Int32} satoshis - debits are negative
+	 * @prop {String} txid
 	 */
 
 	const MAINNET = "mainnet";
@@ -124,11 +145,14 @@ import Wallet from "./wallet.js";
 	let session = {};
 
 	session.accountIndex = 0;
+	session.cjAccountIndex = 0;
 	// session.coinjoinIndex = 0;
 	session.mainnet = {
 		/** @type {import('dashhd').HDWallet} */ //@ts-expect-error
 		walletKey: null,
 		walletId: "",
+		/** @type {import('./wallet.js').AccountInfo} */ //@ts-expect-error
+		cjAccountInfo: null,
 		/** @type {import('./wallet.js').AccountInfo} */ //@ts-expect-error
 		accountInfo: null,
 		accountId: "",
@@ -143,6 +167,8 @@ import Wallet from "./wallet.js";
 		/** @type {import('dashhd').HDWallet} */ //@ts-expect-error
 		walletKey: null,
 		walletId: "",
+		/** @type {import('./wallet.js').AccountInfo} */ //@ts-expect-error
+		cjAccountInfo: null,
 		/** @type {import('./wallet.js').AccountInfo} */ //@ts-expect-error
 		accountInfo: null,
 		accountId: "",
@@ -160,58 +186,14 @@ import Wallet from "./wallet.js";
 	/**
 	 * Select count at random from a given pool
 	 * @param {Number} count
-	 * @param {Number} [pool=count*10] - set same as count for no randomization
+	 * @param {Number} [poolSize] - pass poolSize to takeUnusedKeys
 	 */
-	session.getReceiveAddresses = async function (count, pool = 0) {
-		if (!pool) {
-			pool = count * session._minAddressSelectionPool;
-		}
-
-		let keyStates = await Wallet.getUnusedKeys(
-			currentSession.receiveKeyInfo.accountId,
-			currentSession.receiveKeyInfo,
-			pool, // TODO create a function to reserve keys (marked used)
-		);
-
-		if (pool !== count) {
-			void knuthShuffle(keyStates);
-			keyStates = keyStates.slice(0, count);
-		}
-
-		/** @type {Array<String>} */
-		let receiveAddresses = [];
-		for (let keyState of keyStates) {
-			receiveAddresses.push(keyState.address);
-		}
-
-		return receiveAddresses;
-	};
-	session.getReceiveAddress = async function () {
-		let addresses = await session.getReceiveAddresses(1, 1);
-		let address = addresses[0];
-		return address;
-	};
-
-	/**
-	 * Select count at random from a given pool
-	 * @param {Number} count
-	 * @param {Number} [pool=count*10] - set same as count for no randomization
-	 */
-	session.getChangeAddresses = async function (count, pool = 0) {
-		if (!pool) {
-			pool = count * session._minAddressSelectionPool;
-		}
-
-		let keyStates = await Wallet.getUnusedKeys(
-			currentSession.changeKeyInfo.accountId,
+	session.takeChangeAddresses = async function (count, poolSize) {
+		let keyStates = await Wallet.takeUnusedKeys(
 			currentSession.changeKeyInfo,
-			pool, // TODO create a function to reserve keys (marked used)
+			count,
+			poolSize,
 		);
-
-		if (pool !== count) {
-			void knuthShuffle(keyStates);
-			keyStates = keyStates.slice(0, count);
-		}
 
 		/** @type {Array<String>} */
 		let changeAddresses = [];
@@ -221,43 +203,8 @@ import Wallet from "./wallet.js";
 
 		return changeAddresses;
 	};
-	session.getChangeAddress = async function () {
-		let addresses = await session.getChangeAddresses(1, 1);
-		let address = addresses[0];
-		return address;
-	};
-
-	/**
-	 * Select count (default at random) from a given pool
-	 * @param {Number} count
-	 * @param {Number} [pool=count*10] - set same as count for no randomization
-	 */
-	session.getCJDenomAddresses = async function (count, pool = 0) {
-		if (!pool) {
-			pool = count * session._minAddressSelectionPool;
-		}
-
-		let keyStates = await Wallet.getUnusedKeys(
-			currentSession.denomKeyInfo.accountId,
-			currentSession.denomKeyInfo,
-			pool, // TODO create a function to reserve keys (marked used)
-		);
-
-		if (pool !== count) {
-			void knuthShuffle(keyStates);
-			keyStates = keyStates.slice(0, count);
-		}
-
-		/** @type {Array<String>} */
-		let denomAddresses = [];
-		for (let keyState of keyStates) {
-			denomAddresses.push(keyState.address);
-		}
-
-		return denomAddresses;
-	};
-	session.getCJDenomAddress = async function () {
-		let addresses = await session.getCJDenomAddresses(1, 1);
+	session.takeChangeAddress = async function () {
+		let addresses = await session.takeChangeAddresses(1, 1);
 		let address = addresses[0];
 		return address;
 	};
@@ -284,11 +231,11 @@ import Wallet from "./wallet.js";
 	// /** @type {Array<String>} */
 	// let spendableAddrs = [];
 
-	/** @type {Object.<String, AddressActivity>} */
+	/** @type {Object.<String, DeltaInfo>} */
 	let deltasMap = {};
 	// /** @type {Object.<String, KeyInfo>} */
 	// let keysMap = {};
-	/** @type {Object.<Number, Object.<String, CoinInfo>>} */
+	/** @type {Object.<Number, Object.<String, CoinDelta>>} */
 	let denomsMap = {};
 
 	/** @type {Object.<String, Boolean>} */
@@ -336,6 +283,7 @@ import Wallet from "./wallet.js";
 	 * @prop {Number} coinType - 5 for DASH, 1 for testnet (all coins)
 	 * @prop {import('dashhd').HDVersions} hdVersions - xprv/xpub or tprv/tpub
 	 * @prop {Number} maxConns
+	 * @prop {Number} defaultRounds - how many coinjoins to do
 	 * @prop {Boolean} initialized
 	 * @prop {Object.<Number, QueueInfo>} coinjoinQueues
 	 * @prop {Object.<String, Masternode>} masternodelist
@@ -365,6 +313,7 @@ import Wallet from "./wallet.js";
 		hdVersions: DashHd.MAINNET,
 		dbPrefix: "",
 		maxConns: 3,
+		defaultRounds: 16,
 		initialized: false,
 		coinjoinQueues: globalThis.structuredClone(emptyCoinjoinQueues),
 		masternodelist: {},
@@ -388,6 +337,7 @@ import Wallet from "./wallet.js";
 		hdVersions: DashHd.TESTNET,
 		dbPrefix: "testnet-",
 		maxConns: 3,
+		defaultRounds: 3,
 		initialized: false,
 		coinjoinQueues: globalThis.structuredClone(emptyCoinjoinQueues),
 		masternodelist: {},
@@ -410,7 +360,7 @@ import Wallet from "./wallet.js";
 	 * @prop {String} host - hostname:port
 	 * @prop {String} address - hostname:port
 	 * @prop {Array<Partial<import('dashtx').TxInputForSig>>} inputs
-	 * @prop {String} denomination
+	 * @prop {Number} denomination
 	 * @prop {String} dssu - dssu.state
 	 * @prop {Date} dsa
 	 * @prop {Date} dsq - only if ready flag is set
@@ -526,6 +476,7 @@ import Wallet from "./wallet.js";
 	 * @param {Object} [opts]
 	 * @param {Boolean} [opts.denom]
 	 * @param {Boolean} [opts.coinjoin]
+	 * @returns {Array<FullCoin>}
 	 */
 	function getAllUtxos(opts) {
 		let utxos = [];
@@ -548,16 +499,12 @@ import Wallet from "./wallet.js";
 				continue;
 			}
 
+			/** @type {DeltaInfo} */
 			let info = deltasMap[address];
 			info.balance = DashTx.sum(info.deltas);
 
-			for (let coin of info.deltas) {
-				Object.assign(coin, {
-					outputIndex: coin.index,
-					denom: DashJoin.getDenom(coin.satoshis),
-					publicKey: keyState.publicKey,
-					pubKeyHash: keyState.pubKeyHash,
-				});
+			for (let coinDelta of info.deltas) {
+				let coin = toFullCoin(keyState, coinDelta);
 
 				if (coin.reserved > 0) {
 					continue;
@@ -575,7 +522,23 @@ import Wallet from "./wallet.js";
 				utxos.push(coin);
 			}
 		}
+
 		return utxos;
+	}
+
+	/**
+	 * @param {import('./wallet.js').KeyState} keyState
+	 * @param {CoinDelta} coinDelta
+	 * @returns {FullCoin}
+	 */
+	function toFullCoin(keyState, coinDelta) {
+		let fullCoin = Object.assign(coinDelta, {
+			outputIndex: coinDelta.index,
+			denom: DashJoin.getDenom(coinDelta.satoshis),
+			publicKey: keyState.publicKey,
+			pubKeyHash: keyState.pubKeyHash,
+		});
+		return fullCoin;
 	}
 
 	/**
@@ -623,6 +586,26 @@ import Wallet from "./wallet.js";
 		await dbSet(`testnet-max-connections`, maxConn);
 
 		await App.initP2p();
+	};
+
+	/** @param {String} defaultRoundsStr */
+	App.$setDefaultRounds = async function (defaultRoundsStr) {
+		let newDefaultRounds = parseInt(defaultRoundsStr, 10);
+		console.log(
+			`DEBUG rounds '${defaultRoundsStr}' vs '${App.currentNetwork.defaultRounds}'`,
+		);
+		if (!newDefaultRounds) {
+			return;
+		}
+
+		let $targets = $$(`input[name="targetRounds"]`);
+		for (let $target of $targets) {
+			let rounds = parseInt($target.value, 10);
+			if (rounds === App.currentNetwork.defaultRounds) {
+				$target.value = newDefaultRounds.toString();
+			}
+		}
+		App.currentNetwork.defaultRounds = newDefaultRounds;
 	};
 
 	App.$updateRpcUrl = async function () {
@@ -726,23 +709,14 @@ import Wallet from "./wallet.js";
 		lastReceiveIndex = 0,
 		lastChangeIndex = 0,
 	) {
-		// // reset all key & address state
-		// addresses = [];
-		// changeAddrs = [];
-		// receiveAddrs = [];
-		// spentAddrs = [];
-		// spendableAddrs = [];
-		deltasMap = {};
-		// // keysMap = {}; // this is reference-only
-
-		// TODO Prioritize
+		// TODO Prioritize checking on init
 		// - spendable keys first
 		// - unused receive keys next
 		// - unused change & coinjoin keys
 
-		/** @type {Object.<String, import('./wallet.js').KeyState>} */
-		let verifiedUnused = {};
-		let checkableAddrs = [];
+		// /** @type {Object.<String, import('./wallet.js').KeyState>} */
+		// let verifiedUnused = {};
+		// let checkableAddrs = [];
 
 		let usages = [
 			{ usage: Wallet.USAGE_RECEIVE, count: 100 },
@@ -758,6 +732,7 @@ import Wallet from "./wallet.js";
 			);
 			if (u.usage === Wallet.USAGE_RECEIVE) {
 				currentSession.receiveKeyInfo = usageKeyInfo;
+				console.log(`DEBUG CURRENT SESSION ASSIGNED`, currentSession);
 			} else if (u.usage === Wallet.USAGE_CHANGE) {
 				currentSession.changeKeyInfo = usageKeyInfo;
 			} else if (u.usage === Wallet.USAGE_COINJOIN) {
@@ -771,16 +746,13 @@ import Wallet from "./wallet.js";
 				usageKeyInfo,
 			);
 
-			let keyStates = await Wallet.getUnusedKeys(
-				currentSession.accountInfo.accountId,
-				usageKeyInfo,
-				u.count,
-			);
-			for (let keyState of keyStates) {
-				if (!verifiedUnused[keyState.address]) {
-					checkableAddrs.push(keyState.address);
-				}
-			}
+			void (await Wallet.peekUnusedKeys(usageKeyInfo, u.count));
+			// let keyStates = await Wallet.peekUnusedKeys(usageKeyInfo, u.count);
+			// for (let keyState of keyStates) {
+			// 	if (!verifiedUnused[keyState.address]) {
+			// 		checkableAddrs.push(keyState.address);
+			// 	}
+			// }
 		}
 	};
 
@@ -916,9 +888,9 @@ import Wallet from "./wallet.js";
 		let satoshis = Math.round(amount * SATS);
 		let balance = 0;
 
-		/** @type {Array<import('dashtx').TxInput>?} */
+		/** @type {Array<FullCoin>?} */
 		let inputs = null;
-		/** @type {Array<import('dashtx').TxInput>?} */
+		/** @type {Array<FullCoin>?} */
 		let utxos = null;
 
 		/** @type {Array<HTMLInputElement>} */ //@ts-expect-error
@@ -928,8 +900,10 @@ import Wallet from "./wallet.js";
 			for (let $coin of $coins) {
 				let [address, txid, indexStr] = $coin.value.split(",");
 				let index = parseInt(indexStr, 10);
-				let coin = selectCoin(address, txid, index);
-				Object.assign(coin, { outputIndex: coin.index });
+				let deltaInfo = deltasMap[address];
+				let _coin = selectCoin(deltaInfo, txid, index);
+				let coin = Object.assign(_coin, { outputIndex: _coin.index });
+				//@ts-expect-error TODO
 				inputs.push(coin);
 			}
 			balance = DashTx.sum(inputs);
@@ -1007,7 +981,7 @@ import Wallet from "./wallet.js";
 				outputs.push(output);
 			}
 
-			let changeAddress = await session.getChangeAddress();
+			let changeAddress = await session.takeChangeAddress();
 			let pkhBytes = await DashKeys.addrToPkh(changeAddress, {
 				version: App.currentNetwork.network,
 			});
@@ -1018,11 +992,7 @@ import Wallet from "./wallet.js";
 			};
 
 			let draftTx = DashTx.createLegacyTx(coins, outputs, changeOutput);
-			signedTx = await dashTx.hashAndSignAll(
-				draftTx,
-				// jshint bitwise: false
-				DashTx.SIGHASH_ALL | DashTx.SIGHASH_ANYONECANPAY,
-			);
+			signedTx = await App._finalizeSortSignReserveTx(draftTx);
 		}
 		console.log("DEBUG signed tx", signedTx);
 
@@ -1082,13 +1052,21 @@ import Wallet from "./wallet.js";
 		let burn = 0;
 		msg = memo || message;
 
-		let changeAddress = await session.getChangeAddress();
-		let signedTx = await App._signMemo({ burn, memo, message, changeAddress });
+		let changeAddress = await session.takeChangeAddress();
+
+		let draftTx = await App._createMemoTx({
+			burn,
+			memo,
+			message,
+			changeAddress,
+		});
+		let signedTx = await App._finalizeSortSignReserveTx(draftTx);
 		{
 			let confirmed = window.confirm(
 				`Really send '${memoEncoding}' memo '${msg}'?`,
 			);
 			if (!confirmed) {
+				App._unreserveTx(signedTx);
 				return;
 			}
 		}
@@ -1115,7 +1093,7 @@ import Wallet from "./wallet.js";
 			memo = null;
 		}
 
-		let changeAddress = await session.getChangeAddress();
+		let changeAddress = await session.takeChangeAddress(); // TODO peek
 		let burn = 0;
 		let txInfo = await App._createMemoTx({
 			burn,
@@ -1123,6 +1101,7 @@ import Wallet from "./wallet.js";
 			message,
 			changeAddress,
 		});
+		// Wallet.untakeAddress(changeAddress); // TODO
 		console.info(`DEBUG txInfo`, txInfo);
 
 		let info = `version: ${txInfo.version}`;
@@ -1171,35 +1150,6 @@ import Wallet from "./wallet.js";
 	 */
 
 	/** @type {CreateMemo} */
-	App._signMemo = async function ({
-		burn = 0,
-		memo = null,
-		message = null,
-		collateral = 0,
-		changeAddress,
-	}) {
-		let txInfo = await App._createMemoTx({
-			burn,
-			memo,
-			message,
-			collateral,
-			changeAddress,
-		});
-
-		let signedTx = await dashTx.hashAndSignAll(txInfo);
-		console.log("memo signed", signedTx);
-
-		let now = Date.now();
-		for (let input of txInfo.inputs) {
-			input.reserved = now;
-		}
-		for (let output of txInfo.outputs) {
-			output.reserved = now;
-		}
-		return signedTx;
-	};
-
-	/** @type {CreateMemo} */
 	App._createMemoTx = async function ({
 		burn = 0,
 		memo = null,
@@ -1221,6 +1171,7 @@ import Wallet from "./wallet.js";
 
 		let utxos = getAllUtxos({ denom: false });
 		let txInfo = DashTx.createLegacyTx(utxos, outputs, changeOutput);
+		console.log(`DEBUG memo txInfo`, txInfo);
 		if (txInfo.changeIndex >= 0) {
 			let realChange = txInfo.outputs[txInfo.changeIndex];
 			realChange.address = changeAddress;
@@ -1230,30 +1181,108 @@ import Wallet from "./wallet.js";
 			realChange.pubKeyHash = DashKeys.utils.bytesToHex(pkhBytes);
 		}
 		memoOutput.satoshis -= collateral; // adjusting for fee
-		console.log("DEBUG memo txInfo", txInfo);
-
-		txInfo.inputs.sort(DashTx.sortInputs);
-		txInfo.outputs.sort(DashTx.sortOutputs);
 
 		return txInfo;
 	};
 
-	App._signCollateral = async function (collateral = DashJoin.MIN_COLLATERAL) {
-		let changeAddress = await session.getChangeAddress();
-		let signedTx = await App._signMemo({
-			burn: 0,
-			memo: "",
-			message: null,
-			collateral: DashJoin.MIN_COLLATERAL,
-			changeAddress: changeAddress,
-		});
-		console.log("collat signed", signedTx);
-		let signedTxBytes = DashTx.utils.hexToBytes(signedTx.transaction);
-		return signedTxBytes;
+	/**
+	 * @param {import('dashtx').TxDraft} draftTx
+	 * @param {Number} [now] - date in ms
+	 */
+	App._finalizeSortSignReserveTx = async function (draftTx, now = Date.now()) {
+		let keysByAddress = Wallet.getCachedKeysMap(App.currentNetwork.network);
+
+		for (let input of draftTx.inputs) {
+			let address = input.address || "";
+			let keyState = keysByAddress[address];
+
+			keyState.reserved = now;
+			Object.assign(input, { reserved: now });
+			Wallet.updateKeyState(keyState);
+		}
+
+		for (let output of draftTx.outputs) {
+			let isMemo =
+				typeof output.memo === "string" || typeof output.message === "string";
+			if (isMemo) {
+				continue;
+			}
+
+			Object.assign(output, { reserved: now });
+
+			let address = output.address || ""; // for type checker
+			let keyState = keysByAddress[address];
+			if (keyState) {
+				keyState.reserved = now;
+				Object.assign(output, { pubKeyHash: keyState.pubKeyHash });
+				Wallet.updateKeyState(keyState);
+			}
+
+			if (!output.pubKeyHash) {
+				let pkhBytes = await DashKeys.addrToPkh(address, {
+					version: App.currentNetwork.network,
+				});
+				output.pubKeyHash = DashKeys.utils.bytesToHex(pkhBytes);
+			}
+		}
+
+		draftTx.inputs.sort(DashTx.sortInputs);
+		draftTx.outputs.sort(DashTx.sortOutputs);
+
+		let signedTx = await dashTx.hashAndSignAll(
+			draftTx,
+			// jshint bitwise: false
+			DashTx.SIGHASH_ALL | DashTx.SIGHASH_ANYONECANPAY,
+		);
+
+		return signedTx;
 	};
 
 	/**
-	 * @param {Array<import('dashtx').TxInput>} inputs
+	 * @typedef MayHaveAddress
+	 * @prop {String} [address]
+	 */
+
+	/**
+	 * @param {Object} draftTx
+	 * @param {Array<MayHaveAddress>} draftTx.inputs
+	 * @param {Array<MayHaveAddress>} draftTx.outputs
+	 */
+	App._unreserveTx = function (draftTx) {
+		let keysByAddress = Wallet.getCachedKeysMap(App.currentNetwork.network);
+
+		for (let input of draftTx.inputs) {
+			Object.assign(input, { reserved: 0 });
+
+			let address = input.address || "";
+			let keyState = keysByAddress[address];
+
+			// TODO track how many reservations to un-pop ??
+			// keyState.reservations += 1;
+			// if (keyState.reservations <= 0) {
+			// 	keyState.reservations = 0;
+			// 	keyState.reserved = 0;
+			//  Object.assign(input, { reserved: 0 });
+			// }
+
+			keyState.reserved = 0;
+			Wallet.updateKeyState(keyState);
+		}
+
+		for (let output of draftTx.outputs) {
+			Object.assign(output, { reserved: 0 });
+
+			let address = output.address || ""; // for type checker
+			let keyState = keysByAddress[address];
+			if (keyState) {
+				keyState.reserved = 0;
+				Wallet.updateKeyState(keyState);
+			}
+		}
+	};
+
+	/**
+	 * @param {Array<FullCoin>} inputs
 	 * @param {import('dashtx').TxOutput} output
 	 */
 	async function draftFullBalanceTransfer(inputs, output) {
@@ -1272,7 +1301,7 @@ import Wallet from "./wallet.js";
 	}
 
 	/**
-	 * @param {Array<import('dashtx').TxInput>} inputs
+	 * @param {Array<FullCoin>} inputs
 	 * @param {import('dashtx').TxOutput} output
 	 */
 	async function draftPayWithAllAndReturnChange(inputs, output) {
@@ -1291,7 +1320,7 @@ import Wallet from "./wallet.js";
 	}
 
 	/**
-	 * @param {Array<import('dashtx').TxInput>} utxos
+	 * @param {Array<FullCoin>} utxos
 	 * @param {import('dashtx').TxOutput} output
 	 */
 	async function draftPayWithSomeAndReturnChange(utxos, output) {
@@ -1314,7 +1343,7 @@ import Wallet from "./wallet.js";
 
 		let changeOutput = draftTx.outputs[1];
 		if (changeOutput) {
-			let address = await session.getChangeAddress();
+			let address = await session.takeChangeAddress();
 			changeOutput.address = address;
 		}
 
@@ -1405,7 +1434,9 @@ import Wallet from "./wallet.js";
 		let txid = await DashTx.getId(signedTx.transaction);
 		let now = Date.now();
 		for (let input of signedTx.inputs) {
-			let coin = selectCoin(input.address || "", input.txid, input.outputIndex);
+			let address = input.address || "";
+			let deltaInfo = deltasMap[address];
+			let coin = selectCoin(deltaInfo, input.txid, input.outputIndex);
 			if (!coin) {
 				continue;
 			}
@@ -1419,16 +1450,23 @@ import Wallet from "./wallet.js";
 
 			let info = deltasMap[output.address];
 			if (!info) {
-				info = { balance: 0, deltas: [] };
+				info = { balance: 0, deltas: [], credits: [], debits: [] };
 				deltasMap[output.address] = info;
 			}
-			let memCoin = selectCoin(output.address, txid, i);
+			let deltaInfo = deltasMap[output.address];
+			let memCoin = selectCoin(deltaInfo, txid, i);
 			if (!memCoin) {
 				memCoin = {
 					address: output.address,
 					satoshis: output.satoshis,
 					txid: txid,
 					index: i,
+					//@ts-expect-error
+					blockindex: null,
+					//@ts-expect-error
+					height: null,
+					reserved: 0,
+					denom: 0,
 				};
 				info.deltas.push(memCoin);
 			}
@@ -1476,17 +1514,12 @@ import Wallet from "./wallet.js";
 	}
 
 	/**
-	 * @param {String} address
+	 * @param {DeltaInfo} deltaInfo
 	 * @param {String} txid
 	 * @param {Number} index
 	 */
-	function selectCoin(address, txid, index) {
-		let info = deltasMap[address];
-		if (!info) {
-			let err = new Error(`coins for '${address}' disappeared`);
-			throw err;
-		}
-		for (let delta of info.deltas) {
+	function selectCoin(deltaInfo, txid, index) {
+		for (let delta of deltaInfo.deltas) {
 			if (delta.txid !== txid) {
 				continue;
 			}
@@ -1495,6 +1528,9 @@ import Wallet from "./wallet.js";
 			}
 			return delta;
 		}
+		throw new Error(
+			`the history of that address does not reference index '${index}' in txid '${txid}'`,
+		);
 	}
 
 	/**
@@ -1556,6 +1592,7 @@ import Wallet from "./wallet.js";
 			currentSession.walletKey,
 			session.accountIndex,
 		);
+		currentSession.cjAccountInfo = currentSession.accountInfo; // same for now
 		console.log(
 			`DEBUG ACCOUNT_KEY_INFO`,
 			App.currentNetwork.coinType,
@@ -1568,9 +1605,13 @@ import Wallet from "./wallet.js";
 			sessionPhrase,
 			seedHex,
 			session.accountIndex,
-			session.accountIndex,
+			session.cjAccountIndex,
 			Wallet.USAGE_COINJOIN,
 		);
+
+		$(`input[name="cj-default-rounds"]`).value =
+			App.currentNetwork.defaultRounds.toString();
+
 		await App._walletDerive();
 
 		let keysByAddress = Wallet.getCachedKeysMap(App.currentNetwork.network);
@@ -1826,7 +1867,8 @@ import Wallet from "./wallet.js";
 			);
 			$row = $("tr", $sessTmpl);
 			$row.dataset.row = `${session.host}_${firstAddress}`;
-			$('[data-name="denomination"]', $row).textContent = session.denomination;
+			$('[data-name="denomination"]', $row).textContent =
+				session.denomination.toString();
 			$('[data-name="address"]', $row).textContent = firstAddress;
 			$sessionsTable.appendChild($row);
 		}
@@ -2057,34 +2099,29 @@ import Wallet from "./wallet.js";
 		// - getCJUtxos
 		let utxos = getAllUtxos({ denom: false });
 
-		let denomAddrs = await session.getCJDenomAddresses(500, 500);
-		let changeAddr = await session.getChangeAddress();
-		let draftTx = await App.draftDenominations(
-			slots,
-			utxos,
-			denomAddrs,
-			changeAddr,
-		);
+		let changeAddr = await session.takeChangeAddress();
+		let draftTx = await App.draftDenominations(slots, utxos, changeAddr);
 		if (!draftTx) {
 			window.alert(
 				`Cash Drawer preferences are already met.\nIncrease the number of desired coins to denominate more.`,
 			);
+			// await Wallet.untakeAddress(changeAddress) // TODO
 			return;
 		}
 
-		console.log("denominationTx", draftTx);
-		let keysByAddress = Wallet.getCachedKeysMap(App.currentNetwork.network);
 		for (let output of draftTx.outputs) {
-			let address = output.address || "";
-			let keyState = keysByAddress[address];
-			Object.assign(output, { pubKeyHash: keyState.pubKeyHash });
+			if (output.address) {
+				continue;
+			}
+			let keyState = await Wallet.CJ.takeDenominationKey(
+				currentSession.cjAccountInfo,
+			);
+			output.address = keyState.address;
 		}
+		console.log("denominationTx", draftTx);
 
-		let signedTx = await dashTx.hashAndSignAll(
-			draftTx,
-			// jshint bitwise: false
-			DashTx.SIGHASH_ALL | DashTx.SIGHASH_ANYONECANPAY,
-		);
+		let signedTx = await App._finalizeSortSignReserveTx(draftTx);
+
 		{
 			console.log("DEBUG confirming signed tx", signedTx);
 			let satsOut = DashTx.sum(signedTx.outputs);
@@ -2094,6 +2131,7 @@ import Wallet from "./wallet.js";
 				`Really denominate ${amountStr} to ${signedTx.outputs.length} addresses (+change)?`,
 			);
 			if (!confirmed) {
+				// await Wallet.untakeAddress(changeAddress) // TODO
 				return;
 			}
 		}
@@ -2106,16 +2144,16 @@ import Wallet from "./wallet.js";
 	/**
 	 * @typedef TxOutputMini
 	 * @prop {Number} satoshis
+	 * @prop {String} [address]
 	 */
 
 	/**
 	 * @param {Array<CJSlot>} slots
-	 * @param {Array<import('dashtx').TxInput>} utxos
-	 * @param {Array<String>} denomAddrs
+	 * @param {Array<FullCoin>} utxos
 	 * @param {String} changeAddr
 	 * @returns {import('dashtx').TxDraft}
 	 */
-	App.draftDenominations = function (slots, utxos, denomAddrs, changeAddr) {
+	App.draftDenominations = function (slots, utxos, changeAddr) {
 		let priorityGroups = groupSlotsByPriorityAndAmount(slots);
 		let priorities = Object.keys(priorityGroups);
 		priorities.sort(sortNumberDesc);
@@ -2143,18 +2181,17 @@ import Wallet from "./wallet.js";
 				}
 				needsMore = true;
 
+				let addressF = Math.random(); // hacky-doo workaround
 				let output = {
 					satoshis: slot.denom,
-					address: denomAddrs.shift(),
+					address: addressF.toString(),
 				};
-				if (!output.address) {
-					break;
-				}
 				try {
 					let draftOutputs = outputs.slice(0);
 					draftOutputs.push(output);
 					draftTx = DashTx.createLegacyTx(utxos, draftOutputs, changeOutput);
 				} catch (e) {
+					console.warn(`DEBUG fee error?`, e);
 					//@ts-expect-error
 					let isFeeError = e.message.includes("fee");
 					if (isFeeError) {
@@ -2179,6 +2216,10 @@ import Wallet from "./wallet.js";
 			if (needsMore) {
 				throw new Error("not enough coins to meet denomination targets");
 			}
+		}
+
+		for (let output of outputs) {
+			output.address = ""; // hacky-doo workaround
 		}
 
 		return draftTx;
@@ -2411,13 +2452,12 @@ import Wallet from "./wallet.js";
 					utxo.address,
 				);
 				let round = keyState.usage - Wallet.USAGE_COINJOIN;
+				let coinId = [utxo.address, utxo.txid, utxo.outputIndex].join(",");
+				let defaultRounds = App.currentNetwork.defaultRounds.toString();
 
 				$("[data-name=amount]", clone).textContent = toFixed(utxo.amount, 4);
-				$("[data-name=coin]", clone).value = [
-					utxo.address,
-					utxo.txid,
-					utxo.outputIndex,
-				].join(",");
+				$("[name=cjCoin]", clone).value = coinId;
+				$("[name=targetRounds]", clone).setAttribute("value", defaultRounds); // won't work with .value =
 				$("[data-name=rounds]", clone).textContent = round.toString();
 				$("[data-name=hdpath]", clone).textContent =
 					`${keyState.hdpath}/${keyState.index}`;
@@ -2444,12 +2484,9 @@ import Wallet from "./wallet.js";
 			return;
 		}
 
-		let keyStates = await Wallet.getUnusedKeys(
-			currentSession.receiveKeyInfo.accountId,
+		let firstReceiveKeyInfo = await Wallet.takeUnusedKey(
 			currentSession.receiveKeyInfo,
-			1, // TODO create a function to reserve keys (marked used)
 		);
-		let firstReceiveKeyInfo = keyStates[0];
 
 		requestAnimationFrame(function () {
 			let [dashAmount, dustAmount] = App._splitBalance(totalBalance);
@@ -2773,31 +2810,6 @@ import Wallet from "./wallet.js";
 	};
 
 	/**
-	 * @param {Number} denomination
-	 * @param {Array<FullCoin>} inputs
-	 * @param {Array<import('dashtx').TxOutput>} outputs
-	 */
-	async function assertDenomination(denomination, inputs, outputs) {
-		for (let input of inputs) {
-			let satoshis = input.satoshis;
-			if (satoshis !== denomination) {
-				let msg = `utxo.satoshis (${satoshis}) must match requested denomination ${denomination}`;
-				throw new Error(msg);
-			}
-		}
-		for (let output of outputs) {
-			if (!output.satoshis) {
-				output.satoshis = denomination;
-				continue;
-			}
-			if (output.satoshis !== denomination) {
-				let msg = `output.satoshis (${output.satoshis}) must match requested denomination ${denomination}`;
-				throw new Error(msg);
-			}
-		}
-	}
-
-	/**
 	 * @param {String} network
 	 * @param {Number} denomination
 	 * @param {ReturnType<typeof DashP2P.create>} p2pHost
@@ -3036,60 +3048,80 @@ import Wallet from "./wallet.js";
 		await App.initP2p();
 	}
 
-	App.createCoinJoinSession = async function () {
-		let $coins = $$("[data-name=coin]:checked");
-		if (!$coins.length) {
-			let msg =
-				"Use the Coins table to select which coins to include in the CoinJoin session.";
-			window.alert(msg);
-			return;
+	/**
+	 * @param {Array<FullCoin>} fullCoins
+	 * @param {Number} defaultRounds
+	 */
+	CJ.prepareSessionParams = async function (fullCoins, defaultRounds) {
+		/** @type {Array<FullCoin>} */
+		let inputs = [];
+		/** @type {Array<import('dashtx').TxOutput>} */
+		let outputs = [];
+
+		let denom = 0;
+		for (let fullCoin of fullCoins) {
+			if (!fullCoin.denom) {
+				let coinJson = JSON.stringify(fullCoin, null, 2);
+				let msg = `missing denomination info:\n${coinJson}`;
+				throw new Error(msg);
+			}
+
+			if (!denom) {
+				denom = fullCoin.denom;
+			}
+
+			if (fullCoin.denom !== denom) {
+				let msg = "all coins must be of the same denomination";
+				throw new Error(msg);
+			}
 		}
 
-		let inputs = [];
-		let outputs = [];
-		let denom;
-		for (let $coin of $coins) {
-			let [address, txid, indexStr] = $coin.value.split(",");
-			let index = parseInt(indexStr, 10);
-			let coin = selectCoin(address, txid, index);
-			coin.denom = DashJoin.getDenom(coin.satoshis);
-			if (!coin.denom) {
-				let msg = "CoinJoin requires 10s-Denominated coins, shown in BOLD.";
-				window.alert(msg);
-				return;
-			}
-			if (!denom) {
-				denom = coin.denom;
-			}
-			if (coin.denom !== denom) {
-				let msg =
-					"CoinJoin requires all coins to be of the same denomination (ex: three 0.01, or two 1.0, but not a mix of the two).";
-				window.alert(msg);
-				return;
-			}
-			Object.assign(coin, { outputIndex: coin.index });
-			inputs.push(coin);
+		console.log(`DEBUG CURRENT SESSION`, currentSession);
+		for (let fullCoin of fullCoins) {
+			inputs.push(fullCoin);
 
-			let output = {
-				address: "", // TODO get next coinjoin addr receiveAddrs.shift(), XXX
-				satoshis: denom,
-				pubKeyHash: "",
-			};
-			let pkhBytes = await DashKeys.addrToPkh(output.address, {
+			let maxRounds = fullCoin.rounds ?? defaultRounds;
+			let nextRoundKey = await Wallet.CJ.takeRoundKey(
+				currentSession.cjAccountInfo,
+				fullCoin.address,
+				maxRounds,
+				currentSession.receiveKeyInfo,
+			);
+			let nextRoundAddress = nextRoundKey.address;
+
+			let pkhBytes = await DashKeys.addrToPkh(nextRoundAddress, {
 				version: App.currentNetwork.network,
 			});
-			output.pubKeyHash = DashKeys.utils.bytesToHex(pkhBytes);
+			let pubKeyHash = DashKeys.utils.bytesToHex(pkhBytes);
+
+			let output = {
+				address: nextRoundAddress,
+				satoshis: denom,
+				pubKeyHash: pubKeyHash,
+			};
 			outputs.push(output);
 		}
-
-		assertDenomination(denom, inputs, outputs);
 
 		let collateralTxes = [
 			await App._signCollateral(DashJoin.MIN_COLLATERAL),
 			await App._signCollateral(DashJoin.MIN_COLLATERAL),
 		];
 
-		let networkInfo = App.currentNetwork;
+		return {
+			inputs: inputs,
+			outputs: outputs,
+			collaterals: collateralTxes,
+		};
+	};
+
+	/**
+	 * @param {Array<FullCoin>} inputs
+	 * @param {Array<import('dashtx').TxOutput>} outputs
+	 * @param {Array<Uint8Array>} collateralBytesList
+	 */
+	CJ.beginSession = async function (inputs, outputs, collateralBytesList) {
+		let network = App.currentNetwork.network;
+		let denom = inputs[0].denom;
 
 		/** @type {ReturnType<typeof DashP2P.create>} */ //@ts-expect-error
 		let p2pHost = null;
@@ -3111,6 +3143,7 @@ import Wallet from "./wallet.js";
 			dss: new Date(0),
 			dsc: new Date(0),
 		};
+
 		/**
 		 * @param {String} direction
 		 * @param {String} eventname
@@ -3136,12 +3169,11 @@ import Wallet from "./wallet.js";
 			/** @type {ReturnType<typeof DashP2P.create>?} */
 			let _p2pHost = null;
 			console.log(`COINJOIN %%%%%% connectToBestNode [pre]`);
-			let p2pPromise = CJ.connectToBestNode(
-				networkInfo.network,
-				denomination,
-			).then(function (p2pHost) {
-				_p2pHost = p2pHost;
-			});
+			let p2pPromise = CJ.connectToBestNode(network, denomination).then(
+				function (p2pHost) {
+					_p2pHost = p2pHost;
+				},
+			);
 			let dsqTimeout = sleep(timeout).then(function () {
 				if (!_p2pHost) {
 					session.dssu = "(timeout)";
@@ -3165,12 +3197,12 @@ import Wallet from "./wallet.js";
 
 			console.log(`COINJOIN %%% joinSession`, session, p2pHost);
 			let joinPromise = CJ.joinSession(
-				networkInfo.network,
+				network,
 				denomination,
 				p2pHost,
 				inputs,
 				outputs,
-				collateralTxes,
+				collateralBytesList,
 				notify,
 			);
 			let joinTimeout = sleep(timeout).then(function () {
@@ -3180,6 +3212,7 @@ import Wallet from "./wallet.js";
 			});
 			await Promise.race([joinPromise, joinTimeout]);
 		} catch (e) {
+			App._unreserveTx({ inputs, outputs });
 			console.error(e);
 			session.dssu = "(error)";
 			throw e;
@@ -3195,30 +3228,69 @@ import Wallet from "./wallet.js";
 		}
 	};
 
+	App._signCollateral = async function (collateral = DashJoin.MIN_COLLATERAL) {
+		let changeAddress = await session.takeChangeAddress();
+		let draftTx = await App._createMemoTx({
+			burn: 0,
+			memo: "",
+			message: null,
+			collateral: DashJoin.MIN_COLLATERAL,
+			changeAddress: changeAddress,
+		});
+		let signedTx = await App._finalizeSortSignReserveTx(draftTx);
+		console.log("collateral memo signed", signedTx);
+
+		let signedTxBytes = DashTx.utils.hexToBytes(signedTx.transaction);
+		return signedTxBytes;
+	};
+
+	App.$createCoinJoinSession = async function () {
+		let $coins = $$("[name=cjCoin]:checked");
+		if (!$coins.length) {
+			$coins = $$("[name=cjCoin]");
+		}
+		if (!$coins.length) {
+			let msg = "No denominated coins available. Denominate some coins first.";
+			window.alert(msg);
+			return;
+		}
+
+		let fullCoins = [];
+		for (let $coin of $coins) {
+			/** @type {HTMLOmniElement} */ //@ts-expect-error
+			let $row = $coin.closest("tr");
+			let roundsStr = $(`input[name="targetRounds"]`, $row).value;
+			let rounds = parseInt(roundsStr, 10);
+			let [address, txid, indexStr] = $coin.value.split(",");
+			let index = parseInt(indexStr, 10);
+
+			let keyState = Wallet.getKeyStateByAddress(
+				App.currentNetwork.network,
+				address,
+			);
+			let deltaInfo = deltasMap[address];
+			let coinDelta = selectCoin(deltaInfo, txid, index);
+			coinDelta.rounds = rounds;
+
+			let fullCoin = toFullCoin(keyState, coinDelta);
+			fullCoins.push(fullCoin);
+		}
+
+		let defaultRoundsStr = $(`[name="cj-default-rounds"]`).value;
+		let defaultRounds = parseInt(defaultRoundsStr, 10);
+
+		let cjParams = await CJ.prepareSessionParams(fullCoins, defaultRounds);
+		await CJ.beginSession(
+			cjParams.inputs,
+			cjParams.outputs,
+			cjParams.collaterals,
+		);
+	};
+
 	main().catch(function (err) {
 		console.error(`Error in main:`, err);
 	});
 })();
-
-/**
- * @typedef FullCoin
- * @prop {String} address
- * @prop {Number} satoshis
- * @prop {Hex} txid
- * @prop {Number} index
- * @prop {Number} outputIndex
- * @prop {Number} denom
- * @prop {Hex} publicKey
- * @prop {Hex} pubKeyHash
- */
-
-/**
- * @typedef MemCoin
- * @prop {String} address
- * @prop {Number} satoshis
- * @prop {Hex} txid
- * @prop {Number} index
- */
 
 /**
  * @typedef MasternodeShort
@@ -3251,3 +3323,6 @@ import Wallet from "./wallet.js";
  */
 
 /** @typedef {String} Hex */
+/** @typedef {Number} Int32 */
+/** @typedef {Number} Uint16 */
+/** @typedef {Number} Uint32 */
